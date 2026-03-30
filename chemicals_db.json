@@ -1,0 +1,216 @@
+{
+  "chemicals": [
+    {
+      "id": "rotenone",
+      "name": "Rotenone",
+      "category": "Complex I Inhibitor",
+      "target": "CI",
+      "effect": "block",
+      "description": "A natural pesticide found in certain plants. Blocks electron transfer from the iron-sulfur clusters of Complex I to ubiquinone (CoQ). Prevents NADH oxidation and proton pumping at Complex I.",
+      "clinical_notes": "Used as a pesticide; linked to Parkinson's disease in animal models due to selective dopaminergic neuron death from energy depletion.",
+      "atp_reduction_pct": 60
+    },
+    {
+      "id": "piericidin_a",
+      "name": "Piericidin A",
+      "category": "Complex I Inhibitor",
+      "target": "CI",
+      "effect": "block",
+      "description": "A potent antibiotic produced by Streptomyces. Structurally similar to ubiquinone, it competes for the CoQ binding site on Complex I, blocking electron flow.",
+      "clinical_notes": "Research tool for studying Complex I. Demonstrates how structural mimicry of CoQ can inhibit the ETC.",
+      "atp_reduction_pct": 60
+    },
+    {
+      "id": "barbiturates",
+      "name": "Amobarbital (Barbiturate)",
+      "category": "Complex I Inhibitor",
+      "target": "CI",
+      "effect": "block",
+      "description": "Barbiturates like amobarbital inhibit Complex I by blocking electron transfer at the NADH dehydrogenase. Reduces proton pumping and NADH-linked respiration.",
+      "clinical_notes": "Barbiturate overdose can cause respiratory depression partly through ETC inhibition, contributing to cellular energy failure.",
+      "atp_reduction_pct": 55
+    },
+    {
+      "id": "malonate",
+      "name": "Malonate",
+      "category": "Complex II Inhibitor",
+      "target": "CII",
+      "effect": "block",
+      "description": "A competitive inhibitor of succinate dehydrogenase (Complex II). Structurally similar to succinate, it binds the active site and blocks FADH2-linked electron entry into the ETC via ubiquinone.",
+      "clinical_notes": "Classic example of competitive inhibition taught in biochemistry. Does not affect NADH-linked respiration through Complex I.",
+      "atp_reduction_pct": 20
+    },
+    {
+      "id": "ttfa",
+      "name": "TTFA (Thenoyltrifluoroacetone)",
+      "category": "Complex II Inhibitor",
+      "target": "CII",
+      "effect": "block",
+      "description": "Inhibits Complex II by blocking electron transfer from FADH2 to ubiquinone at the CoQ binding site. Prevents succinate-driven respiration.",
+      "clinical_notes": "Research tool. Demonstrates that Complex II feeds electrons into the chain independently of Complex I.",
+      "atp_reduction_pct": 20
+    },
+    {
+      "id": "antimycin_a",
+      "name": "Antimycin A",
+      "category": "Complex III Inhibitor",
+      "target": "CIII",
+      "effect": "block",
+      "description": "Binds the Qi site of the cytochrome bc1 complex (Complex III), blocking electron transfer from ubiquinol to cytochrome c. Halts the Q-cycle and proton pumping at Complex III.",
+      "clinical_notes": "Used as a piscicide (fish poison). Causes massive ROS production at Complex III due to partial electron transfer creating superoxide.",
+      "atp_reduction_pct": 80
+    },
+    {
+      "id": "myxothiazol",
+      "name": "Myxothiazol",
+      "category": "Complex III Inhibitor",
+      "target": "CIII",
+      "effect": "block",
+      "description": "Binds the Qo site of Complex III, preventing ubiquinol oxidation. Unlike Antimycin A, it blocks the first step of the Q-cycle.",
+      "clinical_notes": "Research antibiotic. Blocking the Qo site produces less ROS than blocking the Qi site (Antimycin A), making it useful for studying ROS generation mechanisms.",
+      "atp_reduction_pct": 80
+    },
+    {
+      "id": "cyanide",
+      "name": "Cyanide (CN⁻)",
+      "category": "Complex IV Inhibitor",
+      "target": "CIV",
+      "effect": "block",
+      "description": "Binds to the Fe³⁺ in cytochrome a3 of Complex IV (cytochrome c oxidase), preventing the final transfer of electrons to oxygen. Completely halts the entire ETC.",
+      "clinical_notes": "Extremely toxic. Causes rapid cellular death by blocking aerobic ATP production. Treated with hydroxocobalamin or nitrites which compete for cyanide binding.",
+      "atp_reduction_pct": 95
+    },
+    {
+      "id": "carbon_monoxide",
+      "name": "Carbon Monoxide (CO)",
+      "category": "Complex IV Inhibitor",
+      "target": "CIV",
+      "effect": "block",
+      "description": "Binds to the reduced iron (Fe²⁺) of cytochrome a3 in Complex IV, competing with oxygen. Prevents electron transfer to O2 and blocks the entire chain.",
+      "clinical_notes": "CO poisoning causes tissue hypoxia both by binding hemoglobin (carboxyhemoglobin) AND by directly inhibiting Complex IV. Treated with hyperbaric oxygen.",
+      "atp_reduction_pct": 90
+    },
+    {
+      "id": "hydrogen_sulfide",
+      "name": "Hydrogen Sulfide (H₂S)",
+      "category": "Complex IV Inhibitor",
+      "target": "CIV",
+      "effect": "block",
+      "description": "Inhibits cytochrome c oxidase (Complex IV) by binding to the copper center (CuB). At low concentrations may act as a signaling molecule; at high concentrations it is toxic.",
+      "clinical_notes": "Toxic gas ('rotten egg' smell). At low doses, H2S may paradoxically be cytoprotective. At high doses, it mimics cyanide poisoning.",
+      "atp_reduction_pct": 85
+    },
+    {
+      "id": "azide",
+      "name": "Sodium Azide (NaN₃)",
+      "category": "Complex IV Inhibitor",
+      "target": "CIV",
+      "effect": "block",
+      "description": "Azide ions bind to cytochrome a3 in Complex IV, similar to cyanide. Blocks electron flow to oxygen and halts oxidative phosphorylation.",
+      "clinical_notes": "Used as a chemical preservative and in automobile airbags. Extremely toxic if ingested; mechanism similar to cyanide.",
+      "atp_reduction_pct": 90
+    },
+    {
+      "id": "oligomycin",
+      "name": "Oligomycin",
+      "category": "ATP Synthase Inhibitor",
+      "target": "CV",
+      "effect": "block",
+      "description": "Blocks the proton channel (Fo subunit) of ATP synthase (Complex V). Protons cannot flow back into the matrix, so ATP synthesis stops. The proton gradient builds up, eventually slowing the entire ETC.",
+      "clinical_notes": "Key research tool. Demonstrates coupling between electron transport and ATP synthesis — when ATP synthase is blocked, electron flow also slows due to backpressure from the proton gradient.",
+      "atp_reduction_pct": 95
+    },
+    {
+      "id": "dnp",
+      "name": "2,4-Dinitrophenol (DNP)",
+      "category": "Uncoupler",
+      "target": "membrane",
+      "effect": "uncouple",
+      "description": "A protonophore that carries H⁺ across the inner mitochondrial membrane, bypassing ATP synthase. Dissipates the proton gradient as heat. Electron transport accelerates but ATP production drops dramatically.",
+      "clinical_notes": "Historically used as a weight-loss drug (1930s) because it increases metabolic rate. Banned due to dangerous hyperthermia, cataracts, and deaths. Still appears in illicit supplements.",
+      "atp_reduction_pct": 70
+    },
+    {
+      "id": "fccp",
+      "name": "FCCP",
+      "category": "Uncoupler",
+      "target": "membrane",
+      "effect": "uncouple",
+      "description": "Carbonyl cyanide-p-trifluoromethoxyphenylhydrazone. A potent protonophore that shuttles H⁺ across the membrane. Used to measure maximal respiratory capacity in experiments.",
+      "clinical_notes": "Standard research uncoupler. When added to cells, oxygen consumption increases to maximum while ATP production drops — the classic demonstration of chemiosmotic coupling.",
+      "atp_reduction_pct": 75
+    },
+    {
+      "id": "cccp",
+      "name": "CCCP",
+      "category": "Uncoupler",
+      "target": "membrane",
+      "effect": "uncouple",
+      "description": "Carbonyl cyanide m-chlorophenylhydrazone. Similar to FCCP, it dissipates the proton gradient by shuttling protons across the inner membrane independently of ATP synthase.",
+      "clinical_notes": "Research tool for studying mitochondrial membrane potential. Often used interchangeably with FCCP in experiments.",
+      "atp_reduction_pct": 75
+    },
+    {
+      "id": "thermogenin",
+      "name": "Thermogenin (UCP1)",
+      "category": "Uncoupler (Biological)",
+      "target": "membrane",
+      "effect": "uncouple",
+      "description": "Uncoupling Protein 1, naturally expressed in brown adipose tissue. Creates a regulated proton leak across the inner membrane, generating heat instead of ATP. This is non-shivering thermogenesis.",
+      "clinical_notes": "Critical for thermoregulation in newborns and hibernating animals. Brown fat activation is a target for obesity research.",
+      "atp_reduction_pct": 40
+    },
+    {
+      "id": "atractyloside",
+      "name": "Atractyloside",
+      "category": "Transport Inhibitor",
+      "target": "ANT",
+      "effect": "transport_block",
+      "description": "Inhibits the adenine nucleotide translocase (ANT), which normally exchanges ADP (into matrix) for ATP (out of matrix). Blocks ATP export from mitochondria, causing intramitochondrial ATP accumulation and feedback inhibition.",
+      "clinical_notes": "Found in the thistle Atractylis gummifera. Poisoning causes liver and kidney failure. Demonstrates the importance of metabolite transport in oxidative phosphorylation.",
+      "atp_reduction_pct": 80
+    },
+    {
+      "id": "metformin",
+      "name": "Metformin",
+      "category": "Complex I Inhibitor (Mild)",
+      "target": "CI",
+      "effect": "partial_block",
+      "description": "First-line diabetes drug that mildly inhibits Complex I. Reduces ATP production, activating AMPK which increases glucose uptake and reduces hepatic glucose output. Effect is much weaker than rotenone.",
+      "clinical_notes": "Most prescribed diabetes drug worldwide. Its mitochondrial mechanism explains both therapeutic effects (AMPK activation) and rare side effect (lactic acidosis from impaired oxidative metabolism).",
+      "atp_reduction_pct": 15
+    },
+    {
+      "id": "mptp",
+      "name": "MPP⁺ (from MPTP)",
+      "category": "Complex I Inhibitor",
+      "target": "CI",
+      "effect": "block",
+      "description": "MPTP is converted to MPP⁺ by MAO-B in the brain. MPP⁺ is selectively taken up by dopaminergic neurons and inhibits Complex I, causing energy depletion and oxidative stress.",
+      "clinical_notes": "Discovered when synthetic heroin users developed sudden Parkinsonism. Now used to create animal models of Parkinson's disease. Demonstrates the vulnerability of dopaminergic neurons to Complex I inhibition.",
+      "atp_reduction_pct": 65
+    },
+    {
+      "id": "doxorubicin",
+      "name": "Doxorubicin (Adriamycin)",
+      "category": "ROS Generator",
+      "target": "CI",
+      "effect": "ros_generation",
+      "description": "An anthracycline chemotherapy drug that can accept electrons from Complex I and transfer them directly to O2, generating superoxide radicals. This redox cycling damages mitochondrial components.",
+      "clinical_notes": "Widely used anti-cancer drug. Dose-limiting cardiotoxicity is primarily due to mitochondrial ROS generation in cardiomyocytes, which have high mitochondrial density.",
+      "atp_reduction_pct": 30
+    }
+  ],
+  "categories": [
+    {"id": "Complex I Inhibitor", "color": [76, 175, 80]},
+    {"id": "Complex II Inhibitor", "color": [244, 67, 54]},
+    {"id": "Complex III Inhibitor", "color": [0, 150, 136]},
+    {"id": "Complex IV Inhibitor", "color": [244, 67, 54]},
+    {"id": "ATP Synthase Inhibitor", "color": [255, 193, 7]},
+    {"id": "Uncoupler", "color": [255, 152, 0]},
+    {"id": "Uncoupler (Biological)", "color": [255, 152, 0]},
+    {"id": "Transport Inhibitor", "color": [156, 39, 176]},
+    {"id": "Complex I Inhibitor (Mild)", "color": [76, 175, 80]},
+    {"id": "ROS Generator", "color": [233, 30, 99]}
+  ]
+}
