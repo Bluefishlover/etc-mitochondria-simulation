@@ -387,23 +387,26 @@ def draw_membrane(surf):
 # Particle classes
 # ---------------------------------------------------------------------------
 class IMSProton:
-    """A proton in the IMS. Drifts with Brownian motion, evenly distributed
-       throughout the entire IMS space representing high [H+] concentration."""
+    """A proton in the IMS. Spawns above the pumping complex that produced
+       it, drifts with Brownian motion, and has a weak bias toward CV so a
+       visible cluster of H+ accumulates above ATP synthase — matching the
+       textbook presentation where H+ cluster above CV ready to flow back.
+       Biologically a simplification: real IMS protons diffuse randomly and
+       the gradient is a bulk concentration, not a directional flow."""
 
     def __init__(self, x, y):
-        # Spawn at random position across full IMS
-        self.x = random.randint(SIM_X + 20, WIDTH - 20)
-        self.y = random.randint(20, IMS_BOTTOM - 15)
-        self.vx = random.uniform(-0.8, 0.8)
-        self.vy = random.uniform(-0.8, 0.8)
+        # Use the actual pumping position (slight jitter for visible spread)
+        self.x = x + random.uniform(-6, 6)
+        self.y = y + random.uniform(-6, 6)
+        self.vx = random.uniform(-0.6, 0.6)
+        self.vy = random.uniform(-0.6, 0.6)
         self.alive = True
 
     def update(self):
-        # Pure Brownian motion - protons spread evenly throughout IMS
         self.x += self.vx
         self.y += self.vy
 
-        # Bounce within IMS bounds - use FULL width and height
+        # Bounce within IMS bounds
         if self.x < SIM_X + 10:
             self.x = SIM_X + 10
             self.vx = abs(self.vx)
@@ -417,15 +420,24 @@ class IMSProton:
             self.y = IMS_BOTTOM - 10
             self.vy = -abs(self.vy)
 
-        # Random Brownian drift - strong enough to spread quickly
-        self.vx += random.uniform(-0.165, 0.165)
-        self.vy += random.uniform(-0.165, 0.165)
+        # Brownian random jitter — must dominate the drift so protons
+        # actually disperse in 2D rather than forming vertical columns
+        # that slowly drift rightward.
+        self.vx += random.uniform(-0.22, 0.22)
+        self.vy += random.uniform(-0.22, 0.22)
 
-        # Damping
-        self.vx *= 0.94
-        self.vy *= 0.94
-        self.vx = max(-1.1, min(1.1, self.vx))
-        self.vy = max(-1.1, min(1.1, self.vy))
+        # Very weak bias toward CV — a gentle long-term tendency, not
+        # a conveyor belt. Kept far below the Brownian jitter.
+        dx_to_cv = CX["CV"] - self.x
+        if abs(dx_to_cv) > 4:
+            self.vx += 0.006 * (1 if dx_to_cv > 0 else -1)
+
+        # Looser damping + higher clamp so the random walk can actually
+        # spread protons around the IMS instead of pinning them in place.
+        self.vx *= 0.90
+        self.vy *= 0.90
+        self.vx = max(-1.2, min(1.2, self.vx))
+        self.vy = max(-1.2, min(1.2, self.vy))
 
     def draw(self, surf):
         pygame.draw.circle(surf, PROTON_COLOR, (int(self.x), int(self.y)), 4)
@@ -433,16 +445,24 @@ class IMSProton:
 
 class PumpingProton:
     """A proton being actively pumped UP through a complex into IMS.
-       Starts inside the complex body, exits from the top into IMS."""
-    def __init__(self, start_x, start_y, target_y):
+       Starts at an actual matrix proton's position (so students see matrix
+       H+ entering the complex), travels up through the complex body while
+       gently curving toward the complex's center x, and exits into the
+       IMS at the target y."""
+    def __init__(self, start_x, start_y, target_x, target_y):
         self.x = start_x
         self.y = start_y
+        self.target_x = target_x
         self.target_y = target_y
-        self.speed = 1.5 + random.random()
+        self.speed = 0.7 + random.random() * 0.4
         self.done = False
 
     def update(self, speed):
         self.y -= self.speed * speed
+        dx = self.target_x - self.x
+        self.x += dx * 0.08 * speed
+        # Small random wobble so rising protons don't form a perfect column
+        self.x += random.uniform(-0.4, 0.4)
         if self.y <= self.target_y:
             self.y = self.target_y
             self.done = True
@@ -460,29 +480,36 @@ class PumpingProton:
 
 class InfluxProton:
     """A proton flowing DOWN through CV (ATP synthase) from IMS into matrix.
-       Starts at the top of CV (Fo channel in IMS) and exits bottom into matrix."""
-    def __init__(self, cx):
-        self.x = cx + random.uniform(-4, 4)
-        self.y = MEMBRANE_Y - 40  # start at top of CV (Fo channel, IMS side)
-        self.target_y = MATRIX_TOP + 60  # travel into matrix
+       Starts at the position of the consumed IMS proton (so the cluster above
+       CV is visibly drawn into the complex) and travels to the matrix side."""
+    def __init__(self, cx, start_x=None, start_y=None):
+        if start_x is None:
+            start_x = cx + random.uniform(-4, 4)
+        if start_y is None:
+            start_y = MEMBRANE_Y - 40
+        # Smoothly curve toward CV's vertical axis as the proton descends
+        self.x = start_x
+        self.y = start_y
+        self.target_x = cx
+        self.target_y = MATRIX_TOP + 60
         self.speed = 0.8 + random.random() * 0.4
         self.done = False
 
     def update(self, speed):
+        # Descend mostly vertically with a gentle curve toward CV's center
         self.y += self.speed * speed
+        dx = self.target_x - self.x
+        self.x += dx * 0.06 * speed
         if self.y >= self.target_y:
             self.done = True
 
     def draw(self, surf):
-        # Larger, brighter proton with clear downward arrow
         pygame.draw.circle(surf, PROTON_COLOR, (int(self.x), int(self.y)), 5)
         pygame.draw.circle(surf, (150, 240, 255), (int(self.x), int(self.y)), 5, 1)
-        # Downward arrow below
         ax, ay = int(self.x), int(self.y)
         pygame.draw.line(surf, PROTON_COLOR, (ax, ay + 6), (ax, ay + 14), 2)
         pygame.draw.line(surf, PROTON_COLOR, (ax - 4, ay + 10), (ax, ay + 14), 2)
         pygame.draw.line(surf, PROTON_COLOR, (ax + 4, ay + 10), (ax, ay + 14), 2)
-        # "H+" label
         txt = FONT_TINY.render("H\u207a", True, PROTON_COLOR)
         surf.blit(txt, (ax + 7, ay - 6))
 
@@ -1259,6 +1286,18 @@ class SimState:
     def reset(self):
         # Particle pools
         self.ims_protons = []       # protons floating in IMS (the gradient!)
+        # Pre-populate the IMS with a living-cell H+ distribution so the
+        # gradient is visible from frame 0. Uniform spread plus extra
+        # density above each pumping complex and ATP synthase.
+        for _ in range(35):
+            self.ims_protons.append(IMSProton(
+                random.randint(SIM_X + 30, WIDTH - 30),
+                random.randint(25, IMS_BOTTOM - 20)))
+        for cx in (CX["CI"], CX["CIII"], CX["CIV"], CX["CV"]):
+            for _ in range(12):
+                self.ims_protons.append(IMSProton(
+                    cx + random.randint(-45, 45),
+                    random.randint(25, IMS_BOTTOM - 30)))
         # Seed matrix with starting protons (from ongoing metabolism)
         self.matrix_protons = []
         for _ in range(50):
@@ -1751,18 +1790,8 @@ def sim_update():
             if len(sim.ims_protons) < IMS_PROTON_CAP:
                 sim.ims_protons.append(IMSProton(p.x, p.target_y))
 
-    # --- Redistribute IMS protons so they don't cluster ---
-    # Each frame, nudge a few protons toward empty regions
-    if len(sim.ims_protons) > 10 and f % 5 == 0:
-        # Pick a random proton and teleport it to a random spot if it's in a crowded area
-        idx = random.randint(0, len(sim.ims_protons) - 1)
-        p = sim.ims_protons[idx]
-        # Count neighbors within 80px
-        neighbors = sum(1 for other in sim.ims_protons
-                        if abs(other.x - p.x) < 80 and abs(other.y - p.y) < 80)
-        if neighbors > 8:  # too crowded, relocate
-            p.x = random.randint(SIM_X + 20, WIDTH - 20)
-            p.y = random.randint(20, IMS_BOTTOM - 15)
+    # (No anti-clustering redistribution — protons are allowed to cluster
+    # above the pumping complexes and drift toward CV for visible gradient.)
     sim.pumping_protons = [p for p in sim.pumping_protons if not p.done]
 
     # --- Step 6: IMS protons drift around (visible gradient!) ---
@@ -1782,17 +1811,27 @@ def sim_update():
 
     cv_interval = max(1, int(30 / (flux * effective_gradient)))
     if cv_ok and len(sim.ims_protons) > 0 and f % cv_interval == 0:
-        # Consume a proton from IMS
-        # Pick one near CV preferentially
+        # Pick the IMS proton closest to CV's top by 2D distance, so the
+        # protons visibly hovering near ATP synthase are the ones drawn
+        # into the enzyme. ATP synthesis is reliable whenever a gradient
+        # exists.
+        cv_top_x = CX["CV"]
+        cv_top_y = IMS_BOTTOM - 30
         best_idx = 0
         best_dist = 99999
         for i, p in enumerate(sim.ims_protons):
-            d = abs(p.x - CX["CV"])
+            d = (p.x - cv_top_x) ** 2 + (p.y - cv_top_y) ** 2
             if d < best_dist:
                 best_dist = d
                 best_idx = i
         sim.ims_protons.pop(best_idx)
-        sim.influx_protons.append(InfluxProton(CX["CV"]))
+        # Spawn the descending InfluxProton from a random position within
+        # the visible decorative cluster above CV, so students see one of
+        # the visible H+ "dropping" into the channel.
+        start_x = CX["CV"] + random.uniform(-22, 22)
+        start_y = IMS_BOTTOM - 42 + random.uniform(-14, 6)
+        sim.influx_protons.append(
+            InfluxProton(CX["CV"], start_x=start_x, start_y=start_y))
         sim.complex_active["CV"] = 10
 
     # Update influx protons - when they arrive in matrix, add to matrix pool
@@ -1805,8 +1844,8 @@ def sim_update():
                 sim.matrix_protons.append(MatrixProton(
                     CX["CV"] + random.uniform(-30, 30),
                     MATRIX_TOP + 20 + random.uniform(0, 40)))
-            # ~4 H+ per ATP, so 25% chance per proton
-            if random.random() < 0.25:
+            # ~3 H+ per ATP (within the biologically reasonable range)
+            if random.random() < 1 / 3:
                 sim.atp_particles.append(ATPParticle(CX["CV"], MATRIX_TOP))
                 atp_this_frame += 1
     sim.influx_protons = [p for p in sim.influx_protons if not p.done]
@@ -1877,8 +1916,10 @@ def sim_update():
     sim.cv_rotation += rotation_speed
 
     # --- Metabolic H+ generation in matrix ---
-    # TCA cycle, NADH/FADH2 reactions, and other metabolism constantly produce H+ in matrix
-    metabolic_interval = max(1, int(5 / flux))
+    # TCA cycle, NADH/FADH2 reactions, and other metabolism constantly
+    # produce H+ in matrix. Faster rate so the matrix pool stays visibly
+    # populated (pumping + CIV water formation consume matrix H+ quickly).
+    metabolic_interval = max(1, int(2 / flux))
     if f % metabolic_interval == 0 and len(sim.matrix_protons) < MATRIX_PROTON_CAP:
         sim.matrix_protons.append(MatrixProton(
             random.randint(SIM_X + 40, WIDTH - 100),
@@ -1896,12 +1937,17 @@ def sim_update():
 
 
 def _pump_protons(complex_key, count):
-    """Consume protons from matrix pool and pump them UP THROUGH the complex into IMS.
-       Protons always start inside the complex body and exit from the top."""
+    """Consume protons from the matrix pool and pump them UP THROUGH the
+       complex into the IMS. The PumpingProton starts at the CONSUMED
+       matrix proton's actual position (so students see matrix H+ entering
+       the complex from below) and rises through the complex body into
+       the IMS."""
     cx = CX[complex_key]
     for _ in range(count):
-        # Consume a matrix proton if available
+        start_x = None
+        start_y = None
         if sim.matrix_protons:
+            # Pick the closest matrix proton to the complex's x
             best_idx = 0
             best_dist = 99999
             for i, mp in enumerate(sim.matrix_protons):
@@ -1909,16 +1955,21 @@ def _pump_protons(complex_key, count):
                 if d < best_dist:
                     best_dist = d
                     best_idx = i
-            sim.matrix_protons.pop(best_idx)
+            consumed = sim.matrix_protons.pop(best_idx)
+            start_x = consumed.x
+            start_y = consumed.y
 
-        # Proton starts INSIDE the complex (bottom half, near membrane)
-        start_x = cx + random.uniform(-10, 10)
-        start_y = MEMBRANE_Y + random.uniform(5, 20)  # inside complex, below center
+        # Fallback if no matrix proton was available (shouldn't happen at
+        # steady state but keeps the pump running visually)
+        if start_x is None:
+            start_x = cx + random.uniform(-10, 10)
+            start_y = MATRIX_TOP + random.uniform(20, 60)
 
-        # Ends up in IMS at varied heights
+        # Randomize target_x across the complex width so rising protons
+        # fan out instead of lining up in a single column.
+        target_x = cx + random.uniform(-14, 14)
         target_y = 30 + random.random() * (IMS_BOTTOM - 60)
-
-        p = PumpingProton(start_x, start_y, target_y)
+        p = PumpingProton(start_x, start_y, target_x, target_y)
         sim.pumping_protons.append(p)
 
 
@@ -1976,6 +2027,38 @@ def draw_all(mx, my):
     # CoQ and CytC stations (drawn after complexes, on top of the membrane)
     draw_coq_station(screen, pulse=sim.coq_station_pulse)
     draw_cytc_station(screen, pulse=sim.cytc_station_pulse)
+
+    # Persistent H+ population above ATP synthase — a broad decorative
+    # cloud filling the IMS column above CV, plus a tighter cluster at
+    # the channel entry that feeds the descending InfluxProtons.
+    if not sim.blocked["CV"] and not sim.transport_blocked:
+        cx_cv = CX["CV"]
+        cy_cv = IMS_BOTTOM - 42
+        t = sim.frame * 0.04
+        # Wider H+ cloud spread through the IMS column above CV
+        cloud_positions = [
+            (-34, -180), (-18, -165), (6, -190), (24, -170), (38, -155),
+            (-28, -135), (-6, -145), (14, -130), (30, -128),
+            (-32, -100), (-12, -108), (8, -95), (26, -110), (40, -90),
+            (-22, -70), (-2, -80), (18, -65), (34, -72),
+            (-28, -40), (-8, -48), (12, -38), (28, -42),
+        ]
+        for i, (dx, dy) in enumerate(cloud_positions):
+            wob_x = math.sin(t * 0.9 + i * 0.4) * 1.8
+            wob_y = math.cos(t * 1.0 + i * 0.3) * 1.8
+            pygame.draw.circle(
+                screen, PROTON_COLOR,
+                (int(cx_cv + dx + wob_x), int(cy_cv + dy + wob_y)), 3)
+        # Tighter cluster right at the channel entry (source of InfluxProtons)
+        for i, (dx, dy) in enumerate([
+            (-22, -6), (-10, -16), (2, -2), (12, -14),
+            (22, -8), (-16, 6), (16, 4), (0, -26),
+        ]):
+            wob_x = math.sin(t + i * 0.7) * 1.4
+            wob_y = math.cos(t * 1.15 + i * 0.5) * 1.4
+            pygame.draw.circle(
+                screen, PROTON_COLOR,
+                (int(cx_cv + dx + wob_x), int(cy_cv + dy + wob_y)), 3)
 
     # O2 final electron acceptor at CIV's matrix face
     sim.oxygen_acceptor.draw(screen)
