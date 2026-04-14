@@ -413,10 +413,18 @@ def draw_membrane(surf):
     for x in range(SIM_X, WIDTH, 14):
         pygame.draw.circle(surf, MEMBRANE_EDGE, (x + 7, MEMBRANE_Y - MEMBRANE_H // 2), 5)
         pygame.draw.circle(surf, MEMBRANE_EDGE, (x + 7, MEMBRANE_Y + MEMBRANE_H // 2), 5)
-    txt_ims = FONT_MD.render("Intermembrane Space (IMS)", True, LABEL_DIM)
-    surf.blit(txt_ims, (SIM_X + 20, 42))
-    txt_mat = FONT_MD.render("Mitochondrial Matrix", True, LABEL_DIM)
-    surf.blit(txt_mat, (SIM_X + 20, HEIGHT - 40))
+    # Zone labels — bold and bright for readability against the dark
+    # IMS and matrix backgrounds, with a subtle shadow so they pop.
+    label_color = (230, 230, 250)
+    shadow_color = (0, 0, 0)
+    ims_label = FONT_LG.render("Intermembrane Space (IMS)", True, label_color)
+    ims_shadow = FONT_LG.render("Intermembrane Space (IMS)", True, shadow_color)
+    surf.blit(ims_shadow, (SIM_X + 21, 43))
+    surf.blit(ims_label, (SIM_X + 20, 42))
+    mat_label = FONT_LG.render("Mitochondrial Matrix", True, label_color)
+    mat_shadow = FONT_LG.render("Mitochondrial Matrix", True, shadow_color)
+    surf.blit(mat_shadow, (SIM_X + 21, HEIGHT - 39))
+    surf.blit(mat_label, (SIM_X + 20, HEIGHT - 40))
 
 
 # ---------------------------------------------------------------------------
@@ -1317,6 +1325,13 @@ class ROSParticle:
 # ---------------------------------------------------------------------------
 class SimState:
     def __init__(self):
+        # Intro zoom state lives OUTSIDE reset() so that pressing R to
+        # reset the simulation between toxin tests doesn't replay the
+        # cell->mitochondrion->ETC zoom sequence.
+        self.intro_active = len(INTRO_IMAGES) > 0
+        self.intro_frame = 0
+        self.intro_stage_duration = 180
+        self.intro_stage_offset = 110
         self.reset()
 
     def reset(self):
@@ -1358,14 +1373,13 @@ class SimState:
         self.coq_station_pulse = 0    # brief highlight when CoQ receives/sends
         self.cytc_station_pulse = 0   # same for CytC station
         self.cv_gradient_strength = 1.0  # 0..1 effective gradient at CV
-        # Intro zoom sequence state — autoplay only, no skip.
-        # Stages overlap: stage i starts at i * intro_stage_offset and
-        # runs for intro_stage_duration frames. During the overlap region
-        # the fading previous image blends with the emerging next image.
-        self.intro_active = len(INTRO_IMAGES) > 0
-        self.intro_frame = 0
-        self.intro_stage_duration = 180  # each image visible for 3 sec
-        self.intro_stage_offset = 110    # next stage begins every ~1.8 sec
+        # ATP penalty: smooth transition toward the documented
+        # atp_reduction_pct of active chemicals, so rotenone-style
+        # partial blocks visibly drop ATP production over ~45 seconds.
+        self.atp_penalty_current = 1.0
+        self.atp_penalty_target = 1.0
+        # Navigation / help overlay toggle
+        self.help_open = False
         # Persistent O2 final electron acceptor at CIV's matrix face
         self.oxygen_acceptor = OxygenAcceptor(CX["CIV"], MATRIX_TOP + 35)
 
@@ -1421,11 +1435,22 @@ class SimState:
         # Gradient counter for HUD
         self.gradient_display = 0
 
+    def _recompute_atp_penalty_target(self):
+        """Combine the atp_reduction_pct of every active chemical into a
+           single penalty multiplier. 60% reduction = penalty 0.40, meaning
+           CV consumption runs at 40% of its normal rate at steady state."""
+        penalty = 1.0
+        for c in self.active_chemicals:
+            pct = c.get("atp_reduction_pct", 0)
+            penalty *= max(0.0, (100 - pct) / 100)
+        self.atp_penalty_target = penalty
+
     def apply_chemical(self, chem):
         if chem["id"] in [c["id"] for c in self.active_chemicals]:
             return
         self.active_chemicals.append(chem)
         self._apply_effect(chem)
+        self._recompute_atp_penalty_target()
         self._trigger_narrative(chem)
 
     def remove_chemical(self, chem_id):
@@ -1450,6 +1475,7 @@ class SimState:
         self.electron_hops = []
         for c in self.active_chemicals:
             self._apply_effect(c)
+        self._recompute_atp_penalty_target()
 
     def _apply_effect(self, chem):
         target = chem["target"]
@@ -1855,13 +1881,26 @@ def sim_update():
     # ATP synthase rate is proportional to proton-motive force. As the IMS
     # pool drains, the effective gradient drops and ATP synthesis slows
     # proportionally. Below a residual threshold of ~3 protons, the force
-    # is insufficient to drive ATP synthesis and CV stops entirely
-    # (thermodynamic threshold — real biology behaves the same way).
+    # is insufficient to drive ATP synthesis and CV stops entirely.
+    # Additionally, active chemicals impose an atp_penalty that smoothly
+    # lerps toward the documented atp_reduction_pct over ~45 seconds so
+    # students see ATP production drop in lockstep with the toxin's
+    # effect (even for partial blocks like rotenone that don't drain
+    # the pool via cascade).
     cv_ok = not sim.blocked["CV"] and not sim.transport_blocked
     pool_size = len(sim.ims_protons)
-    effective_gradient = max(0.0, min(1.0, (pool_size - 3) / 30))
-    if sim.uncoupled:
-        effective_gradient *= max(0.1, 1.0 - sim.uncoupler_strength)
+    pool_gradient = max(0.0, min(1.0, (pool_size - 3) / 30))
+    # Lerp the atp penalty toward its target (~45 sec to near-steady).
+    sim.atp_penalty_current += (
+        sim.atp_penalty_target - sim.atp_penalty_current) * 0.0012
+    # Direct penalty override: when chemicals are active, effective_gradient
+    # is set to the penalty so ATP rate exactly matches the stated
+    # atp_reduction_pct. The min() with pool_gradient still honors the
+    # thermodynamic threshold (if the pool drains below ~3, CV stops).
+    if sim.active_chemicals:
+        effective_gradient = min(pool_gradient, sim.atp_penalty_current)
+    else:
+        effective_gradient = pool_gradient
     sim.cv_gradient_strength = effective_gradient  # exposed for decorative fade
 
     cv_interval = max(1, int(10 / (flux * max(0.01, effective_gradient))))
@@ -2286,8 +2325,11 @@ def draw_all(mx, my):
                 alert_cx = CX[target]
                 alert_cy = MEMBRANE_Y if target != "CII" else MEMBRANE_Y + 50
             elif target == "membrane":
+                # Membrane-wide effect (uncouplers) — push the skull up
+                # into the upper IMS so it doesn't overlap the CoQ or
+                # CytC stations that sit on the membrane.
                 alert_cx = SIM_X + SIM_W // 2
-                alert_cy = MEMBRANE_Y
+                alert_cy = 145
             elif target == "ANT":
                 alert_cx = CX["CV"] - 80
                 alert_cy = MEMBRANE_Y
@@ -2308,6 +2350,7 @@ def draw_all(mx, my):
 
     # Info panel (on top)
     draw_info_panel(screen)
+    draw_help_panel(screen)
 
     return ui
 
@@ -2323,6 +2366,17 @@ def draw_sidebar(surf, mx, my):
     surf.blit(title, (15, 12))
     subtitle = FONT_TINY.render("Click to apply/remove \u2022 Right-click for info", True, LABEL_DIM)
     surf.blit(subtitle, (15, 42))
+
+    # Help "?" button in the top-right of the sidebar header
+    help_btn = pygame.Rect(SIDEBAR_W - 42, 12, 30, 30)
+    help_hover = help_btn.collidepoint(mx, my)
+    btn_col = (90, 120, 170) if help_hover else (60, 80, 120)
+    pygame.draw.rect(surf, btn_col, help_btn, border_radius=15)
+    pygame.draw.rect(surf, (160, 200, 255), help_btn, 2, border_radius=15)
+    q_txt = FONT_LG.render("?", True, (255, 255, 255))
+    surf.blit(q_txt, (help_btn.centerx - q_txt.get_width() // 2,
+                      help_btn.centery - q_txt.get_height() // 2))
+
     pygame.draw.line(surf, (60, 60, 80), (10, 60), (SIDEBAR_W - 10, 60))
 
     list_y_start = 70
@@ -2421,6 +2475,7 @@ def draw_sidebar(surf, mx, my):
         "pause": pause_rect, "step": step_rect, "reset": reset_rect,
         "slider": slider_rect, "list_y_start": list_y_start,
         "item_h": item_h, "visible_h": visible_h,
+        "help": help_btn,
     }
 
 
@@ -2472,10 +2527,16 @@ def draw_info_panel(surf):
 
     pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 10
 
-    for line in wrap_text(info.get("description", ""), FONT_SM, pw - 30):
-        if y > ph - 70:
-            break
-        panel.blit(FONT_SM.render(line, True, TEXT_COLOR), (15, y)); y += 18
+    # Summary section (the technical mechanism description)
+    if info.get("description"):
+        panel.blit(FONT_TITLE.render("Summary:", True, (200, 200, 220)),
+                   (15, y))
+        y += 20
+        for line in wrap_text(info["description"], FONT_SM, pw - 30):
+            if y > ph - 70:
+                break
+            panel.blit(FONT_SM.render(line, True, TEXT_COLOR), (15, y))
+            y += 18
 
     y += 5
     sim.ref_link_rect = None
@@ -2526,8 +2587,111 @@ def draw_info_panel(surf):
                 break
             panel.blit(FONT_SM.render(line, True, (230, 190, 150)), (15, y)); y += 17
 
+    # Common Source section — where this chemical comes from in the world
+    if "common_source" in info and y < ph - 50:
+        y += 3
+        pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 8
+        panel.blit(FONT_TITLE.render("Common Source:", True, (180, 200, 255)),
+                   (15, y))
+        y += 20
+        for line in wrap_text(info["common_source"], FONT_SM, pw - 30):
+            if y > ph - 30:
+                break
+            panel.blit(FONT_SM.render(line, True, (200, 215, 240)), (15, y))
+            y += 17
+
     close_txt = FONT_SM.render("Click outside or press ESC to close", True, LABEL_DIM)
     panel.blit(close_txt, (pw // 2 - close_txt.get_width() // 2, ph - 22))
+    surf.blit(panel, (px, py))
+
+
+HELP_SECTIONS = [
+    ("Mouse", [
+        ("Left-click chemical (sidebar)", "Apply or remove the toxin"),
+        ("Right-click chemical (sidebar)", "View info only (no apply)"),
+        ("Click Complex I/II/III/IV/V", "Open details for that complex"),
+        ("Click CoQ or Cyt c station", "Open details for the carrier"),
+        ("Click reference URL in a details panel",
+         "Open the source in a web browser"),
+        ("Drag the Metabolic Flux slider",
+         "Adjust simulation speed (0 = frozen, 2 = fast)"),
+    ]),
+    ("Keyboard", [
+        ("Space", "Pause / Resume the simulation"),
+        ("Right arrow", "Step one frame forward (when paused)"),
+        ("R", "Reset the simulation (keeps applied chemicals)"),
+        ("H", "Toggle this help panel"),
+        ("Esc", "Close an open panel, or exit the simulation"),
+    ]),
+    ("What to watch", [
+        ("ATP Production gauge (top right)",
+         "Live percent of normal ATP output — drains when toxins hit"),
+        ("Skull icon on a complex",
+         "Shows which complex the active toxin is hitting"),
+        ("Narrative panel (top of simulation)",
+         "Step-by-step biochemistry of the active toxin's effect"),
+        ("Yellow electron hops",
+         "Electrons flowing between complexes and CoQ / Cyt c stations"),
+        ("H+ cluster above a complex",
+         "Proton gradient in the IMS — weakens as toxins act"),
+        ("Blue water droplets below CIV",
+         "H2O produced when electrons reach O2 (the final acceptor)"),
+    ]),
+]
+
+
+def draw_help_panel(surf):
+    """Full-screen navigation / controls overlay. Toggled by the '?' button
+       in the sidebar header or the H key."""
+    if not sim.help_open:
+        return
+    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 160))
+    surf.blit(overlay, (0, 0))
+
+    pw, ph = 780, 620
+    px = (WIDTH - pw) // 2
+    py = (HEIGHT - ph) // 2
+    sim.help_panel_rect = pygame.Rect(px, py, pw, ph)
+
+    panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
+    pygame.draw.rect(panel, (28, 32, 48, 245), (0, 0, pw, ph), border_radius=14)
+    pygame.draw.rect(panel, ACCENT, (0, 0, pw, ph), 2, border_radius=14)
+
+    title = FONT_XL.render("Navigation & Controls", True, ACCENT)
+    panel.blit(title, ((pw - title.get_width()) // 2, 18))
+    pygame.draw.line(panel, (80, 90, 130), (30, 58), (pw - 30, 58), 1)
+
+    y = 70
+    left_col = 30
+    right_col = 300
+    col_w = pw - right_col - 30
+
+    for section_title, rows in HELP_SECTIONS:
+        panel.blit(
+            FONT_LG.render(section_title, True, (180, 220, 255)),
+            (left_col, y))
+        y += 28
+        for key, desc in rows:
+            key_surf = FONT_SM.render(key, True, (255, 255, 180))
+            panel.blit(key_surf, (left_col + 10, y))
+            lines = wrap_text(desc, FONT_SM, col_w)
+            line_y = y
+            for line in lines:
+                panel.blit(
+                    FONT_SM.render(line, True, (210, 215, 230)),
+                    (right_col, line_y))
+                line_y += 18
+            y = max(y + 22, line_y + 4)
+        y += 10
+        if y > ph - 60:
+            break
+
+    close_txt = FONT_SM.render(
+        "Click anywhere outside  \u2022  press Esc or H to close",
+        True, LABEL_DIM)
+    panel.blit(close_txt, ((pw - close_txt.get_width()) // 2, ph - 28))
+
     surf.blit(panel, (px, py))
 
 
@@ -2535,13 +2699,96 @@ def draw_info_panel(surf):
 # HUD
 # ---------------------------------------------------------------------------
 def draw_hud(surf):
-    # Active effects (top right, no box)
+    # --- Dramatic ATP Production gauge (top right) ---
+    # Starts at 100% and drains visually toward the toxin's documented
+    # reduction level. Color shifts green -> yellow -> orange -> red as
+    # production drops. Target level shown as a dashed red line.
+    atp_pct = int(round(sim.atp_penalty_current * 100))
+    fill_frac = max(0.0, min(1.0, sim.atp_penalty_current))
+    if atp_pct >= 80:
+        fill_color = (100, 220, 120)
+    elif atp_pct >= 50:
+        fill_color = (240, 220, 80)
+    elif atp_pct >= 20:
+        fill_color = (255, 150, 60)
+    else:
+        fill_color = (255, 70, 70)
+
+    gauge_w = 62
+    gauge_h = 210
+    gauge_x = WIDTH - 130
+    gauge_y = 60
+
+    # "ATP PRODUCTION" heading above gauge
+    head1 = FONT_TITLE.render("ATP", True, (220, 220, 240))
+    head2 = FONT_TINY.render("PRODUCTION", True, (180, 180, 200))
+    surf.blit(head1, (gauge_x + gauge_w // 2 - head1.get_width() // 2, 12))
+    surf.blit(head2, (gauge_x + gauge_w // 2 - head2.get_width() // 2, 30))
+
+    # Large percentage above the tube — this is the dramatic number
+    pct_txt = FONT_XL.render(f"{atp_pct}%", True, fill_color)
+    surf.blit(pct_txt, (gauge_x + gauge_w // 2 - pct_txt.get_width() // 2, 42))
+
+    # Tube outline (dark background)
+    tube_rect = pygame.Rect(gauge_x, gauge_y + 20, gauge_w, gauge_h)
+    pygame.draw.rect(surf, (20, 22, 36), tube_rect, border_radius=10)
+    pygame.draw.rect(surf, (100, 110, 150), tube_rect, 3, border_radius=10)
+
+    # Fill from the bottom (liquid level)
+    inner_w = gauge_w - 8
+    inner_h = gauge_h - 8
+    fill_h = int(inner_h * fill_frac)
+    if fill_h > 0:
+        fill_rect = pygame.Rect(
+            gauge_x + 4,
+            gauge_y + 24 + (inner_h - fill_h),
+            inner_w,
+            fill_h)
+        # Glow layer for drama
+        glow = pygame.Surface((inner_w + 20, fill_h + 20), pygame.SRCALPHA)
+        pygame.draw.rect(glow, (*fill_color, 70),
+                         (10, 10, inner_w, fill_h), border_radius=6)
+        surf.blit(glow, (fill_rect.x - 10, fill_rect.y - 10))
+        # Solid fill
+        pygame.draw.rect(surf, fill_color, fill_rect, border_radius=6)
+        # Highlight stripe on the left edge for a glass-tube feel
+        hl_rect = pygame.Rect(fill_rect.x + 4, fill_rect.y + 2, 4, fill_h - 4)
+        if hl_rect.height > 0:
+            hl_surf = pygame.Surface(hl_rect.size, pygame.SRCALPHA)
+            hl_surf.fill((255, 255, 255, 70))
+            surf.blit(hl_surf, hl_rect.topleft)
+
+    # Tick marks and labels on the left side of the tube
+    for tick_pct in (0, 25, 50, 75, 100):
+        ty = gauge_y + 24 + int(inner_h * (1 - tick_pct / 100))
+        pygame.draw.line(surf, (160, 160, 180),
+                         (gauge_x - 6, ty), (gauge_x - 2, ty), 2)
+        tlbl = FONT_TINY.render(f"{tick_pct}", True, (160, 160, 180))
+        surf.blit(tlbl, (gauge_x - 26, ty - 6))
+
+    # Target marker (dashed red line + label) when a chemical is active
     if sim.active_chemicals:
-        acy = 15
-        surf.blit(FONT_TITLE.render("Active Effects:", True, (255, 150, 150)), (WIDTH - 220, acy))
+        target_pct = int(round(sim.atp_penalty_target * 100))
+        ty = gauge_y + 24 + int(inner_h * (1 - target_pct / 100))
+        for dx in range(0, gauge_w, 6):
+            pygame.draw.line(surf, (255, 90, 90),
+                             (gauge_x + dx, ty),
+                             (gauge_x + dx + 3, ty), 2)
+        tgt_lbl = FONT_TINY.render(
+            f"\u2190 target {target_pct}%", True, (255, 120, 120))
+        surf.blit(tgt_lbl, (gauge_x + gauge_w + 6, ty - 6))
+
+    # Active effects list (below the gauge)
+    if sim.active_chemicals:
+        acy = gauge_y + gauge_h + 30
+        surf.blit(
+            FONT_TITLE.render("Active Effects:", True, (255, 150, 150)),
+            (WIDTH - 220, acy))
         acy += 20
         for chem in sim.active_chemicals:
-            surf.blit(FONT_SM.render(f"\u2022 {chem['name']}", True, (255, 180, 180)), (WIDTH - 215, acy))
+            surf.blit(
+                FONT_SM.render(f"\u2022 {chem['name']}", True, (255, 180, 180)),
+                (WIDTH - 215, acy))
             acy += 17
 
     # Title - centered at top of simulation area
@@ -2641,6 +2888,20 @@ COMPLEX_INFO = {
         "target": "CV",
         "description": "A molecular rotary motor. Protons flow down their gradient through the Fo channel, driving rotation of the c-ring, which turns the gamma subunit inside F1, catalyzing ATP synthesis from ADP + Pi. ~4 H+ needed per ATP.",
         "clinical_notes": "One of the smallest known rotary engines in biology. Defects cause NARP syndrome (neuropathy, ataxia, retinitis pigmentosa)."
+    },
+    "CoQ": {
+        "name": "Ubiquinone (CoQ / Coenzyme Q)",
+        "category": "Mobile Electron Carrier",
+        "target": "Inner Membrane (lipid pool)",
+        "description": "A small lipid-soluble quinone that diffuses laterally within the inner mitochondrial membrane. Accepts 2 electrons and 2 H+ to become ubiquinol (CoQH2), then delivers them to Complex III. The sole electron carrier between CI/CII and CIII, and the only non-protein electron carrier in the ETC. Cycles through three redox states: Q (oxidized), QH\u2022 (semiquinone radical), and QH2 (reduced).",
+        "clinical_notes": "Sold as the dietary supplement CoQ10. Statin drugs can reduce endogenous CoQ10 synthesis. Primary CoQ10 deficiency causes encephalomyopathy and cerebellar ataxia."
+    },
+    "CytC": {
+        "name": "Cytochrome c",
+        "category": "Mobile Electron Carrier",
+        "target": "Intermembrane Space (loosely bound)",
+        "description": "A small water-soluble heme protein (~12 kDa) loosely attached to the IMS-facing surface of the inner membrane. Carries one electron at a time from Complex III to Complex IV via its iron heme center, cycling between Fe\u00b3\u207a and Fe\u00b2\u207a. One of the most evolutionarily conserved proteins known.",
+        "clinical_notes": "Release of cytochrome c from the intermembrane space into the cytosol is a key trigger of apoptosis (programmed cell death) via caspase activation. Makes cytochrome c a major node linking mitochondrial damage to cell death."
     }
 }
 
@@ -2651,6 +2912,8 @@ def get_complex_at(mx, my):
         "CIII": pygame.Rect(CX["CIII"] - 40, MEMBRANE_Y - 70, 80, 140),
         "CIV":  pygame.Rect(CX["CIV"] - 35, MEMBRANE_Y - 60, 70, 120),
         "CV":   pygame.Rect(CX["CV"] - 40, MEMBRANE_Y - 50, 80, 130),
+        "CoQ":  pygame.Rect(COQ_STATION_X - 30, COQ_STATION_Y - 16, 60, 32),
+        "CytC": pygame.Rect(CYTC_STATION_X - 32, CYTC_STATION_Y - 16, 64, 32),
     }
     for key, rect in hit_rects.items():
         if rect.collidepoint(mx, my):
@@ -2813,10 +3076,14 @@ def main():
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if sim.info_panel:
+                    if sim.help_open:
+                        sim.help_open = False
+                    elif sim.info_panel:
                         sim.info_panel = None
                     else:
                         running = False
+                elif event.key == pygame.K_h:
+                    sim.help_open = not sim.help_open
                 elif event.key == pygame.K_SPACE:
                     sim.paused = not sim.paused
                 elif event.key == pygame.K_RIGHT and sim.paused:
@@ -2829,6 +3096,16 @@ def main():
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
+                    # Help overlay has priority: click outside closes it
+                    if sim.help_open:
+                        hp_rect = getattr(sim, "help_panel_rect", None)
+                        if hp_rect and not hp_rect.collidepoint(mx, my):
+                            sim.help_open = False
+                        continue
+                    # Help "?" button in sidebar header
+                    if "help" in ui and ui["help"].collidepoint(mx, my):
+                        sim.help_open = True
+                        continue
                     if sim.info_panel and sim.info_panel_rect:
                         # Check if clicking the reference link
                         if sim.ref_link_rect and sim.ref_link_rect.collidepoint(mx, my):
