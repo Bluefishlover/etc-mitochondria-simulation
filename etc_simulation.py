@@ -237,8 +237,7 @@ def draw_complex_IV(surf, cx, cy, blocked=False, highlight=False, active=False):
                         (cx - 32, cy - 55, 64, 30))
     txt = FONT_MD.render("CIV", True, (255, 255, 255))
     surf.blit(txt, (cx - txt.get_width() // 2, cy - 8))
-    txt2 = FONT_TINY.render("\u00bdO\u2082 + 2H\u207a \u2192 H\u2082O", True, (255, 200, 200))
-    surf.blit(txt2, (cx - 35, cy + 55))
+    # Reaction equation shown on the OxygenAcceptor below CIV, not here.
     txt3 = FONT_TINY.render("2 H\u207a \u2191", True, PROTON_COLOR)
     surf.blit(txt3, (cx - txt3.get_width() // 2, cy - 68))
     if blocked:
@@ -569,6 +568,272 @@ class WaterParticle:
         surf.blit(txt, (int(self.x) + 8, int(self.y) - 6))
 
 
+class OxygenAcceptor:
+    """Animated O2 final electron acceptor at CIV's matrix face.
+
+       State machine:
+         IDLE     - O2 bonded, gently vibrating, reaction equation visible
+         SPLIT    - Electron arrives, O-O bond breaks, two O atoms slide apart
+         ATTACH   - Four H atoms fly up from matrix and attach to the O atoms
+         PRODUCTS - Two H2O molecules are visible; water particles spawn
+         RESET    - Products fade, O2 reassembles, back to IDLE
+
+       If a new electron arrives while a reaction is in progress, it is
+       queued (capped at 3) and processed when the current reaction ends."""
+
+    STATE_IDLE = 0
+    STATE_SPLIT = 1
+    STATE_ATTACH = 2
+    STATE_PRODUCTS = 3
+    STATE_RESET = 4
+
+    SPLIT_DURATION = 16
+    ATTACH_DURATION = 18
+    PRODUCTS_DURATION = 28
+    RESET_DURATION = 12
+
+    BONDED_OFFSET = 8     # x offset from center when O atoms are bonded
+    SPLIT_OFFSET = 22     # x offset from center when fully split
+
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.state = self.STATE_IDLE
+        self.phase_age = 0
+        self.vib = 0.0
+        self.queue = 0
+        self.left_ox_x = -self.BONDED_OFFSET
+        self.right_ox_x = self.BONDED_OFFSET
+
+    def trigger(self):
+        if self.state == self.STATE_IDLE:
+            self._start_reaction()
+        else:
+            self.queue = min(self.queue + 1, 3)
+
+    def _start_reaction(self):
+        self.state = self.STATE_SPLIT
+        self.phase_age = 0
+
+    def update(self):
+        self.vib += 0.18
+        if self.state == self.STATE_IDLE:
+            return
+        self.phase_age += 1
+
+        if self.state == self.STATE_SPLIT:
+            t = min(1.0, self.phase_age / self.SPLIT_DURATION)
+            self.left_ox_x = -self.BONDED_OFFSET - t * (self.SPLIT_OFFSET - self.BONDED_OFFSET)
+            self.right_ox_x = self.BONDED_OFFSET + t * (self.SPLIT_OFFSET - self.BONDED_OFFSET)
+            if self.phase_age >= self.SPLIT_DURATION:
+                self.state = self.STATE_ATTACH
+                self.phase_age = 0
+
+        elif self.state == self.STATE_ATTACH:
+            if self.phase_age >= self.ATTACH_DURATION:
+                self.state = self.STATE_PRODUCTS
+                self.phase_age = 0
+
+        elif self.state == self.STATE_PRODUCTS:
+            if self.phase_age >= self.PRODUCTS_DURATION:
+                self.state = self.STATE_RESET
+                self.phase_age = 0
+                # At the end, spawn a small water particle at the drifted
+                # position so accumulated water continues drifting further
+                # down through the matrix (continuity with legacy visual).
+                drift = self.PRODUCTS_DURATION  # full drift distance
+                sim.water_particles.append(
+                    WaterParticle(self.x - self.SPLIT_OFFSET - 28,
+                                  self.y + 12))
+                sim.water_particles.append(
+                    WaterParticle(self.x + self.SPLIT_OFFSET + 28,
+                                  self.y + 12))
+
+        elif self.state == self.STATE_RESET:
+            # Positions are held at SPLIT_OFFSET while the draw() method
+            # cross-fades the old split atoms out and new bonded atoms in.
+            if self.phase_age >= self.RESET_DURATION:
+                self.state = self.STATE_IDLE
+                self.phase_age = 0
+                self.left_ox_x = -self.BONDED_OFFSET
+                self.right_ox_x = self.BONDED_OFFSET
+                if self.queue > 0:
+                    self.queue -= 1
+                    self._start_reaction()
+
+    def _draw_O(self, surf, cx, cy, color=(220, 60, 60),
+                outline=(255, 170, 170), alpha=255):
+        """Draw a single O atom with outline and 'O' label. Supports color
+           (for orange-to-blue transition) and alpha (for cross-fade)."""
+        if alpha <= 0:
+            return
+        a = max(0, min(255, int(alpha)))
+        if a >= 255:
+            pygame.draw.circle(surf, color, (cx, cy), 10)
+            pygame.draw.circle(surf, outline, (cx, cy), 10, 2)
+            lbl = FONT_TINY.render("O", True, (255, 255, 255))
+            surf.blit(lbl, (cx - lbl.get_width() // 2, cy - 6))
+            return
+        s = pygame.Surface((24, 24), pygame.SRCALPHA)
+        pygame.draw.circle(s, (*color, a), (12, 12), 10)
+        pygame.draw.circle(s, (*outline, a), (12, 12), 10, 2)
+        surf.blit(s, (cx - 12, cy - 12))
+        lbl = FONT_TINY.render("O", True, (255, 255, 255))
+        lbl.set_alpha(a)
+        surf.blit(lbl, (cx - lbl.get_width() // 2, cy - 6))
+
+    def _draw_H(self, surf, cx, cy, alpha=255):
+        """Draw a single H atom with optional alpha."""
+        if alpha <= 0:
+            return
+        a = max(0, min(255, int(alpha)))
+        if a >= 255:
+            pygame.draw.circle(surf, (230, 240, 255), (cx, cy), 5)
+            pygame.draw.circle(surf, (255, 255, 255), (cx, cy), 5, 1)
+            lbl = FONT_TINY.render("H", True, (60, 100, 160))
+            surf.blit(lbl, (cx - lbl.get_width() // 2, cy - 6))
+            return
+        s = pygame.Surface((14, 14), pygame.SRCALPHA)
+        pygame.draw.circle(s, (230, 240, 255, a), (7, 7), 5)
+        pygame.draw.circle(s, (255, 255, 255, a), (7, 7), 5, 1)
+        surf.blit(s, (cx - 7, cy - 7))
+        lbl = FONT_TINY.render("H", True, (60, 100, 160))
+        lbl.set_alpha(a)
+        surf.blit(lbl, (cx - lbl.get_width() // 2, cy - 6))
+
+    def draw(self, surf):
+        cx, cy = int(self.x), int(self.y)
+
+        # PRODUCTS: the orange O atoms visibly TRANSFORM into blue water
+        # molecules (color shift) and drift outward + downward. H atoms
+        # stay attached. This is the critical "the orange oxygens became
+        # the blue water" pedagogical moment - they are the same atoms.
+        if self.state == self.STATE_PRODUCTS:
+            t = self.phase_age / self.PRODUCTS_DURATION
+            # Drift outward and downward as water molecules move away
+            drift_x = t * 28
+            drift_y = t * 12
+            # Color lerp from orange (220,60,60) to water blue (80,160,255).
+            # Complete the color shift in the first 60% of the phase.
+            color_t = min(1.0, t / 0.6)
+            r = int(220 + (80 - 220) * color_t)
+            g = int(60 + (160 - 60) * color_t)
+            b = int(60 + (255 - 60) * color_t)
+            color = (r, g, b)
+            outline = (min(255, r + 60), min(255, g + 60), min(255, b + 30))
+            # Fade out during the last 30% of the phase
+            if t > 0.7:
+                alpha = int(255 * max(0.0, 1 - (t - 0.7) / 0.3))
+            else:
+                alpha = 255
+            for side in (-1, 1):
+                wx = cx + side * (self.SPLIT_OFFSET + int(drift_x))
+                wy = cy + int(drift_y)
+                # H atoms attached at upper-left and upper-right (bent shape)
+                self._draw_H(surf, wx - 9, wy - 8, alpha=alpha)
+                self._draw_H(surf, wx + 9, wy - 8, alpha=alpha)
+                # The (now-blue) O atom — same atom that was orange before
+                self._draw_O(surf, wx, wy, color=color, outline=outline, alpha=alpha)
+                # "H2O" label below
+                lbl = FONT_SM.render("H\u2082O", True, (140, 200, 255))
+                lbl.set_alpha(alpha)
+                surf.blit(lbl, (wx - lbl.get_width() // 2, wy + 14))
+            return
+
+        # RESET: fresh O2 fades in at the center position (the previous
+        # atoms already drifted away as water during PRODUCTS, so we
+        # don't need to cross-fade them out anymore).
+        if self.state == self.STATE_RESET:
+            t = self.phase_age / self.RESET_DURATION
+            fade_in_alpha = int(255 * min(1.0, t))
+            bonded_lx = cx - self.BONDED_OFFSET
+            bonded_rx = cx + self.BONDED_OFFSET
+            self._draw_O(surf, bonded_lx, cy, alpha=fade_in_alpha)
+            self._draw_O(surf, bonded_rx, cy, alpha=fade_in_alpha)
+            bond = pygame.Surface((12, 8), pygame.SRCALPHA)
+            pygame.draw.line(bond, (230, 230, 230, fade_in_alpha),
+                             (0, 2), (11, 2), 2)
+            pygame.draw.line(bond, (230, 230, 230, fade_in_alpha),
+                             (0, 6), (11, 6), 2)
+            surf.blit(bond, (bonded_lx + 5, cy - 4))
+            return
+
+        # IDLE / SPLIT / ATTACH — draw the orange O atoms at current positions
+        if self.state == self.STATE_IDLE:
+            vib_y = int(math.sin(self.vib) * 1.8)
+            vib_x_l = int(math.cos(self.vib * 1.3) * 1.0)
+            vib_x_r = int(math.cos(self.vib * 1.3 + 0.5) * 1.0)
+        else:
+            vib_y = vib_x_l = vib_x_r = 0
+
+        lx = cx + int(self.left_ox_x) + vib_x_l
+        rx = cx + int(self.right_ox_x) + vib_x_r
+        oy = cy + vib_y
+
+        # Bond between O atoms (visible when close)
+        gap = rx - lx
+        if gap < 28:
+            bond_alpha = max(0, min(255, int((28 - gap) * 16)))
+            bond = pygame.Surface((gap - 10, 8), pygame.SRCALPHA)
+            pygame.draw.line(bond, (230, 230, 230, bond_alpha),
+                             (0, 2), (gap - 10, 2), 2)
+            pygame.draw.line(bond, (230, 230, 230, bond_alpha),
+                             (0, 6), (gap - 10, 6), 2)
+            surf.blit(bond, (lx + 5, oy - 4))
+
+        # Two orange O atoms
+        self._draw_O(surf, lx, oy)
+        self._draw_O(surf, rx, oy)
+
+        # SPLIT phase - electron sparkle between the separating atoms
+        if self.state == self.STATE_SPLIT:
+            t = self.phase_age / self.SPLIT_DURATION
+            alpha = int(255 * min(1.0, t * 2))
+            e_glow = pygame.Surface((22, 22), pygame.SRCALPHA)
+            pygame.draw.circle(e_glow, (255, 234, 0, int(alpha * 0.4)), (11, 11), 10)
+            pygame.draw.circle(e_glow, (255, 234, 0, alpha), (11, 11), 6)
+            surf.blit(e_glow, (cx - 11, cy - 11))
+            e_lbl = FONT_TINY.render("e\u207b", True, (255, 234, 0))
+            e_lbl.set_alpha(alpha)
+            surf.blit(e_lbl, (cx - e_lbl.get_width() // 2, cy + 14))
+
+        # ATTACH phase - H atoms flying up from matrix toward each O
+        if self.state == self.STATE_ATTACH:
+            t = min(1.0, self.phase_age / self.ATTACH_DURATION)
+            # Four H atoms: 2 per O atom
+            for ox_center, h_offs in [(lx, [-8, 8]), (rx, [-8, 8])]:
+                for hx_off in h_offs:
+                    start_x = ox_center + hx_off
+                    start_y = cy + 55
+                    target_x = ox_center + hx_off * 0.7
+                    target_y = cy + (hx_off // 2)
+                    hx_now = start_x + (target_x - start_x) * t
+                    hy_now = start_y + (target_y - start_y) * t
+                    self._draw_H(surf, int(hx_now), int(hy_now))
+
+        # PRODUCTS phase - "H2O" labels flanking the atoms, fading slowly
+        if self.state == self.STATE_PRODUCTS:
+            t = self.phase_age / self.PRODUCTS_DURATION
+            alpha = int(255 * max(0.0, 1 - t * 0.7))
+            for ox_center in [lx, rx]:
+                # Small H atoms still attached
+                self._draw_H(surf, ox_center - 7, cy - 8)
+                self._draw_H(surf, ox_center + 7, cy - 8)
+                lbl = FONT_SM.render("H\u2082O", True, (120, 190, 255))
+                lbl.set_alpha(alpha)
+                surf.blit(lbl, (ox_center - lbl.get_width() // 2, cy + 16))
+
+        # Static labels visible only in IDLE state
+        if self.state == self.STATE_IDLE:
+            lbl = FONT_MD.render("O\u2082", True, (255, 180, 180))
+            surf.blit(lbl, (cx - lbl.get_width() // 2, cy + 16))
+            hint = FONT_TINY.render("final e\u207b acceptor", True, (200, 150, 150))
+            surf.blit(hint, (cx - hint.get_width() // 2, cy + 36))
+            eq = FONT_TINY.render("O\u2082 + 4e\u207b + 4H\u207a \u2192 2 H\u2082O",
+                                  True, (180, 180, 200))
+            surf.blit(eq, (cx - eq.get_width() // 2, cy + 50))
+
+
 class SubstrateEntry:
     """NADH or FADH2 substrate marker rising from the matrix into CI or CII.
        Visualizes where electrons enter the chain.
@@ -654,7 +919,10 @@ class ElectronDescent:
     def update(self):
         self.age += 1
         if self.age >= self.duration and not self.spawned_water:
-            sim.water_particles.append(WaterParticle(self.x, self.y_end + 8))
+            # Electron arrives at O2 acceptor - trigger reaction pulse and
+            # spawn the resulting water droplet from the O2 position.
+            sim.oxygen_acceptor.trigger()
+            sim.water_particles.append(WaterParticle(self.x, self.y_end + 12))
             self.spawned_water = True
 
     @property
@@ -1013,6 +1281,8 @@ class SimState:
         self.parked_at_cytc = []      # electrons held at CytC station when CIV blocked
         self.coq_station_pulse = 0    # brief highlight when CoQ receives/sends
         self.cytc_station_pulse = 0   # same for CytC station
+        # Persistent O2 final electron acceptor at CIV's matrix face
+        self.oxygen_acceptor = OxygenAcceptor(CX["CIV"], MATRIX_TOP + 35)
 
         # Complex activation flash timers (frames remaining)
         self.complex_active = {"CI": 0, "CII": 0, "CIII": 0, "CIV": 0, "CV": 0}
@@ -1437,7 +1707,7 @@ def sim_update():
                 _pump_protons("CIV", 2)
                 _consume_matrix_protons_for_water("CIV", 2)
                 sim.electron_descents.append(
-                    ElectronDescent(CX["CIV"], MEMBRANE_Y, MATRIX_TOP + 20))
+                    ElectronDescent(CX["CIV"], MEMBRANE_Y, MATRIX_TOP + 35))
     sim.electron_hops.extend(spawned_hops)
     sim.electron_hops = [h for h in sim.electron_hops if not h.done]
 
@@ -1590,6 +1860,9 @@ def sim_update():
         ed.update()
     sim.electron_descents = [ed for ed in sim.electron_descents if not ed.done]
 
+    # --- Oxygen acceptor pulse decay ---
+    sim.oxygen_acceptor.update()
+
     # Note: electron_hops are already updated and pruned in Step 3 above.
 
     # --- ATP particles ---
@@ -1703,6 +1976,9 @@ def draw_all(mx, my):
     # CoQ and CytC stations (drawn after complexes, on top of the membrane)
     draw_coq_station(screen, pulse=sim.coq_station_pulse)
     draw_cytc_station(screen, pulse=sim.cytc_station_pulse)
+
+    # O2 final electron acceptor at CIV's matrix face
+    sim.oxygen_acceptor.draw(screen)
 
     # Parked electrons at stations (when downstream is blocked)
     for i, p in enumerate(sim.parked_at_coq):
