@@ -104,6 +104,40 @@ except Exception:
     SKULL_IMG_LARGE = None
 
 # ---------------------------------------------------------------------------
+# Intro zoom sequence images — played at startup before the game begins
+# ---------------------------------------------------------------------------
+INTRO_IMAGES = []
+_intro_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "assets", "intro")
+_intro_defs = [
+    ("01_cell.png",
+     "The Eukaryotic Cell",
+     "Home to the nucleus, mitochondria, and many organelles"),
+    ("02_mitochondrion.png",
+     "The Mitochondrion",
+     "The cell's power plant — outer and inner membranes"),
+    ("03_cristae.png",
+     "Cristae of the Inner Membrane",
+     "Folded membrane densely packed with ETC complexes"),
+    ("04_etc.png",
+     "The Electron Transport Chain",
+     "Complexes I, II, III, IV and ATP Synthase"),
+]
+_WIDTH = 1280
+_HEIGHT = 800
+for _fn, _cap, _sub in _intro_defs:
+    try:
+        _raw = pygame.image.load(
+            os.path.join(_intro_dir, _fn)).convert_alpha()
+        _sw, _sh = _raw.get_size()
+        _scale = min(_WIDTH / _sw, _HEIGHT / _sh)
+        _surf = pygame.transform.smoothscale(
+            _raw, (int(_sw * _scale), int(_sh * _scale)))
+        INTRO_IMAGES.append({"surf": _surf, "cap": _cap, "sub": _sub})
+    except Exception:
+        pass
+
+# ---------------------------------------------------------------------------
 # Layout constants
 # ---------------------------------------------------------------------------
 MEMBRANE_Y = 380
@@ -137,8 +171,10 @@ COQ_STATION_Y = IMS_BOTTOM + 10
 CYTC_STATION_X = (CX["CIII"] + CX["CIV"]) // 2
 CYTC_STATION_Y = IMS_BOTTOM + 10
 
-# Max protons that accumulate visibly in IMS before we stop adding more
-IMS_PROTON_CAP = 100
+# Max protons that accumulate visibly in IMS before we stop adding more.
+# Tuned so that when pumping halts (e.g., cyanide cascade), the pool drains
+# in roughly 25 seconds at default flux — classroom-friendly demo timing.
+IMS_PROTON_CAP = 50
 
 # ---------------------------------------------------------------------------
 # Drawing helpers
@@ -1288,15 +1324,16 @@ class SimState:
         self.ims_protons = []       # protons floating in IMS (the gradient!)
         # Pre-populate the IMS with a living-cell H+ distribution so the
         # gradient is visible from frame 0. Uniform spread plus extra
-        # density above each pumping complex and ATP synthase.
-        for _ in range(35):
+        # density above each pumping complex and ATP synthase. Total
+        # stays under IMS_PROTON_CAP = 50.
+        for _ in range(20):
             self.ims_protons.append(IMSProton(
                 random.randint(SIM_X + 30, WIDTH - 30),
                 random.randint(25, IMS_BOTTOM - 20)))
         for cx in (CX["CI"], CX["CIII"], CX["CIV"], CX["CV"]):
-            for _ in range(12):
+            for _ in range(7):
                 self.ims_protons.append(IMSProton(
-                    cx + random.randint(-45, 45),
+                    cx + random.randint(-40, 40),
                     random.randint(25, IMS_BOTTOM - 30)))
         # Seed matrix with starting protons (from ongoing metabolism)
         self.matrix_protons = []
@@ -1320,6 +1357,15 @@ class SimState:
         self.parked_at_cytc = []      # electrons held at CytC station when CIV blocked
         self.coq_station_pulse = 0    # brief highlight when CoQ receives/sends
         self.cytc_station_pulse = 0   # same for CytC station
+        self.cv_gradient_strength = 1.0  # 0..1 effective gradient at CV
+        # Intro zoom sequence state — autoplay only, no skip.
+        # Stages overlap: stage i starts at i * intro_stage_offset and
+        # runs for intro_stage_duration frames. During the overlap region
+        # the fading previous image blends with the emerging next image.
+        self.intro_active = len(INTRO_IMAGES) > 0
+        self.intro_frame = 0
+        self.intro_stage_duration = 180  # each image visible for 3 sec
+        self.intro_stage_offset = 110    # next stage begins every ~1.8 sec
         # Persistent O2 final electron acceptor at CIV's matrix face
         self.oxygen_acceptor = OxygenAcceptor(CX["CIV"], MATRIX_TOP + 35)
 
@@ -1643,9 +1689,11 @@ def sim_update():
     sim.stuck_cytc_count = len(sim.parked_at_cytc)
 
     # CoQ station full -> CI/CII cannot offload to CoQ (= "ci_backed_up")
-    sim.ci_backed_up = sim.stuck_coq_count >= 5
     # CytC station full -> CIII cannot offload to CytC (= "ciii_backed_up")
-    sim.ciii_backed_up = sim.stuck_cytc_count >= 5
+    # Thresholds kept low so toxin cascades propagate in ~5 seconds rather
+    # than stringing out across tens of firings.
+    sim.ci_backed_up = sim.stuck_coq_count >= 2
+    sim.ciii_backed_up = sim.stuck_cytc_count >= 2
 
     if sim.ci_backed_up:
         sim.chain_status = "blocked"
@@ -1804,13 +1852,20 @@ def sim_update():
         p.update()
 
     # --- Step 7: CV draws protons from IMS pool to make ATP ---
+    # ATP synthase rate is proportional to proton-motive force. As the IMS
+    # pool drains, the effective gradient drops and ATP synthesis slows
+    # proportionally. Below a residual threshold of ~3 protons, the force
+    # is insufficient to drive ATP synthesis and CV stops entirely
+    # (thermodynamic threshold — real biology behaves the same way).
     cv_ok = not sim.blocked["CV"] and not sim.transport_blocked
-    effective_gradient = 1.0
+    pool_size = len(sim.ims_protons)
+    effective_gradient = max(0.0, min(1.0, (pool_size - 3) / 30))
     if sim.uncoupled:
-        effective_gradient = max(0.1, 1.0 - sim.uncoupler_strength)
+        effective_gradient *= max(0.1, 1.0 - sim.uncoupler_strength)
+    sim.cv_gradient_strength = effective_gradient  # exposed for decorative fade
 
-    cv_interval = max(1, int(30 / (flux * effective_gradient)))
-    if cv_ok and len(sim.ims_protons) > 0 and f % cv_interval == 0:
+    cv_interval = max(1, int(10 / (flux * max(0.01, effective_gradient))))
+    if cv_ok and effective_gradient > 0.01 and f % cv_interval == 0:
         # Pick the IMS proton closest to CV's top by 2D distance, so the
         # protons visibly hovering near ATP synthase are the ones drawn
         # into the enzyme. ATP synthesis is reliable whenever a gradient
@@ -2028,37 +2083,35 @@ def draw_all(mx, my):
     draw_coq_station(screen, pulse=sim.coq_station_pulse)
     draw_cytc_station(screen, pulse=sim.cytc_station_pulse)
 
-    # Persistent H+ population above ATP synthase — a broad decorative
-    # cloud filling the IMS column above CV, plus a tighter cluster at
-    # the channel entry that feeds the descending InfluxProtons.
+    # Persistent H+ population above ATP synthase — fades with the real
+    # gradient strength so when CV stops (pool drained to threshold) the
+    # cluster visibly empties out too. A broad cloud fills the IMS column
+    # plus a tighter cluster at the channel entry.
     if not sim.blocked["CV"] and not sim.transport_blocked:
-        cx_cv = CX["CV"]
-        cy_cv = IMS_BOTTOM - 42
-        t = sim.frame * 0.04
-        # Wider H+ cloud spread through the IMS column above CV
-        cloud_positions = [
-            (-34, -180), (-18, -165), (6, -190), (24, -170), (38, -155),
-            (-28, -135), (-6, -145), (14, -130), (30, -128),
-            (-32, -100), (-12, -108), (8, -95), (26, -110), (40, -90),
-            (-22, -70), (-2, -80), (18, -65), (34, -72),
-            (-28, -40), (-8, -48), (12, -38), (28, -42),
-        ]
-        for i, (dx, dy) in enumerate(cloud_positions):
-            wob_x = math.sin(t * 0.9 + i * 0.4) * 1.8
-            wob_y = math.cos(t * 1.0 + i * 0.3) * 1.8
+        cluster_alpha = int(255 * sim.cv_gradient_strength)
+        if cluster_alpha > 0:
+            cx_cv = CX["CV"]
+            cy_cv = IMS_BOTTOM - 42
+            t = sim.frame * 0.04
+            cloud_positions = [
+                (-34, -180), (-18, -165), (6, -190), (24, -170), (38, -155),
+                (-28, -135), (-6, -145), (14, -130), (30, -128),
+                (-32, -100), (-12, -108), (8, -95), (26, -110), (40, -90),
+                (-22, -70), (-2, -80), (18, -65), (34, -72),
+                (-28, -40), (-8, -48), (12, -38), (28, -42),
+                (-22, -6), (-10, -16), (2, -2), (12, -14),
+                (22, -8), (-16, 6), (16, 4), (0, -26),
+            ]
+            proton_surf = pygame.Surface((8, 8), pygame.SRCALPHA)
             pygame.draw.circle(
-                screen, PROTON_COLOR,
-                (int(cx_cv + dx + wob_x), int(cy_cv + dy + wob_y)), 3)
-        # Tighter cluster right at the channel entry (source of InfluxProtons)
-        for i, (dx, dy) in enumerate([
-            (-22, -6), (-10, -16), (2, -2), (12, -14),
-            (22, -8), (-16, 6), (16, 4), (0, -26),
-        ]):
-            wob_x = math.sin(t + i * 0.7) * 1.4
-            wob_y = math.cos(t * 1.15 + i * 0.5) * 1.4
-            pygame.draw.circle(
-                screen, PROTON_COLOR,
-                (int(cx_cv + dx + wob_x), int(cy_cv + dy + wob_y)), 3)
+                proton_surf, (*PROTON_COLOR, cluster_alpha), (4, 4), 3)
+            for i, (dx, dy) in enumerate(cloud_positions):
+                wob_x = math.sin(t * 0.9 + i * 0.4) * 1.8
+                wob_y = math.cos(t * 1.0 + i * 0.3) * 1.8
+                screen.blit(
+                    proton_surf,
+                    (int(cx_cv + dx + wob_x) - 4,
+                     int(cy_cv + dy + wob_y) - 4))
 
     # O2 final electron acceptor at CIV's matrix face
     sim.oxygen_acceptor.draw(screen)
@@ -2621,6 +2674,116 @@ def get_sidebar_chem_at(my, ui):
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+def _draw_intro_caption(surf, caption, subtitle, alpha):
+    """Draw the title + subtitle text for an intro stage with drop shadow."""
+    a = max(0, min(255, int(alpha)))
+    if a <= 0:
+        return
+    cap_surf = FONT_XL.render(caption, True, (255, 255, 255))
+    cap_shadow = FONT_XL.render(caption, True, (0, 0, 0))
+    cap_surf.set_alpha(a)
+    cap_shadow.set_alpha(int(a * 0.7))
+    cx = (WIDTH - cap_surf.get_width()) // 2
+    cy = HEIGHT - 130
+    surf.blit(cap_shadow, (cx + 3, cy + 3))
+    surf.blit(cap_surf, (cx, cy))
+    if subtitle:
+        sub_surf = FONT_MD.render(subtitle, True, (220, 220, 220))
+        sub_shadow = FONT_MD.render(subtitle, True, (0, 0, 0))
+        sub_surf.set_alpha(a)
+        sub_shadow.set_alpha(int(a * 0.7))
+        sx = (WIDTH - sub_surf.get_width()) // 2
+        sy = cy + 38
+        surf.blit(sub_shadow, (sx + 2, sy + 2))
+        surf.blit(sub_surf, (sx, sy))
+
+
+def _draw_intro_image(surf, entry, scale, alpha, show_caption):
+    """Draw an intro image scaled from its natural size with alpha,
+       centered on screen. Caption is rendered by the caller on the
+       peak-alpha stage only."""
+    a = max(0, min(255, int(alpha)))
+    if a <= 0 or scale <= 0.01:
+        return
+    img = entry["surf"]
+    w, h = img.get_size()
+    new_w = max(1, int(w * scale))
+    new_h = max(1, int(h * scale))
+    try:
+        scaled = pygame.transform.smoothscale(img, (new_w, new_h))
+    except Exception:
+        return
+    scaled.set_alpha(a)
+    x = (WIDTH - new_w) // 2
+    y = (HEIGHT - new_h) // 2
+    surf.blit(scaled, (x, y))
+    if show_caption:
+        _draw_intro_caption(surf, entry["cap"], entry["sub"], a)
+
+
+def _intro_total_frames():
+    """Total frame count for the entire intro sequence."""
+    return ((len(INTRO_IMAGES) - 1) * sim.intro_stage_offset
+            + sim.intro_stage_duration)
+
+
+def _intro_update():
+    """Advance the intro master timer. During the final stage's fade
+       phase, also tick the main sim so it's already running when the
+       intro hands over."""
+    sim.intro_frame += 1
+    total = _intro_total_frames()
+    if sim.intro_frame >= total:
+        sim.intro_active = False
+        return
+    # Boot up the sim during the last image's fade-out so the handover
+    # is seamless
+    last_stage_start = (len(INTRO_IMAGES) - 1) * sim.intro_stage_offset
+    last_t = (sim.intro_frame - last_stage_start) / sim.intro_stage_duration
+    if last_t > 0.5:
+        sim_update()
+
+
+def _intro_draw(mx, my):
+    """Render all currently-active intro stages. Stages overlap so there
+       is always an image zooming — no hold — and the transition between
+       stages is a blended cross-zoom."""
+    f = sim.intro_frame
+    last_stage_start = (len(INTRO_IMAGES) - 1) * sim.intro_stage_offset
+    last_t = (f - last_stage_start) / sim.intro_stage_duration
+    # During the last stage's fade-out, draw the real sim behind
+    if last_t > 0.5:
+        draw_all(mx, my)
+    else:
+        screen.fill((0, 0, 0))
+
+    stage_dur = sim.intro_stage_duration
+    # Determine which stage currently has peak alpha (for caption)
+    peak_idx = -1
+    peak_alpha = 0
+    for i in range(len(INTRO_IMAGES)):
+        stage_start = i * sim.intro_stage_offset
+        if stage_start <= f < stage_start + stage_dur:
+            t = (f - stage_start) / stage_dur
+            a = 255 * (1 - abs(t - 0.5) * 2)
+            if a > peak_alpha:
+                peak_alpha = a
+                peak_idx = i
+
+    for i in range(len(INTRO_IMAGES)):
+        stage_start = i * sim.intro_stage_offset
+        stage_end = stage_start + stage_dur
+        if stage_start <= f < stage_end:
+            t = (f - stage_start) / stage_dur
+            # Continuous zoom: scale 0.4 -> 1.8 across the full stage
+            scale = 0.4 + t * 1.4
+            # Triangle alpha: 0 -> 255 -> 0 peaking at t=0.5
+            alpha = 255 * (1 - abs(t - 0.5) * 2)
+            show_cap = (i == peak_idx and alpha > 200)
+            _draw_intro_image(
+                screen, INTRO_IMAGES[i], scale, alpha, show_cap)
+
+
 def main():
     running = True
     dragging_slider = False
@@ -2628,6 +2791,21 @@ def main():
 
     while running:
         mx, my = pygame.mouse.get_pos()
+
+        # Intro sequence: autoplay only, only QUIT/ESC are handled
+        if sim.intro_active:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    running = False
+            if not running:
+                break
+            _intro_update()
+            _intro_draw(mx, my)
+            pygame.display.flip()
+            clock.tick(FPS)
+            continue
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
