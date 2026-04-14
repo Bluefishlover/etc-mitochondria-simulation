@@ -17,6 +17,7 @@ import json
 import math
 import random
 import os
+import webbrowser
 import sys
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,8 @@ FONT_SM = pygame.font.SysFont("Segoe UI", 13)
 FONT_MD = pygame.font.SysFont("Segoe UI", 16)
 FONT_LG = pygame.font.SysFont("Segoe UI", 20, bold=True)
 FONT_XL = pygame.font.SysFont("Segoe UI", 26, bold=True)
+FONT_TARGET = pygame.font.SysFont("Segoe UI", 22, bold=True)
+FONT_ATP_RED = pygame.font.SysFont("Segoe UI", 22, bold=True)
 FONT_TITLE = pygame.font.SysFont("Segoe UI", 14, bold=True)
 FONT_TINY = pygame.font.SysFont("Segoe UI", 11)
 
@@ -86,6 +89,19 @@ with open(db_path, "r", encoding="utf-8") as f:
     CHEM_DB = json.load(f)
 
 CHEMICALS = CHEM_DB["chemicals"]
+
+# ---------------------------------------------------------------------------
+# Load skull image for blocked complexes
+# ---------------------------------------------------------------------------
+skull_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "Gemini_Generated_Image_pcvvicpcvvicpcvv.png")
+try:
+    SKULL_IMG_RAW = pygame.image.load(skull_path).convert_alpha()
+    SKULL_IMG = pygame.transform.smoothscale(SKULL_IMG_RAW, (40, 40))
+    SKULL_IMG_LARGE = pygame.transform.smoothscale(SKULL_IMG_RAW, (120, 120))
+except Exception:
+    SKULL_IMG = None
+    SKULL_IMG_LARGE = None
 
 # ---------------------------------------------------------------------------
 # Layout constants
@@ -109,6 +125,17 @@ CX = {
     "CIV":  SIM_X + 600,
     "CV":   SIM_X + 790,
 }
+
+# Stationary CoQ and CytC station positions — visible labeled waypoints that
+# electrons hop through, matching textbook ETC diagrams. Biologically these
+# carriers are mobile pools, but the station-style simplification makes the
+# electron flow pathway obvious for students. Stations sit INSIDE the upper
+# portion of the membrane so electron hops travel within the lipid bilayer
+# rather than arcing up into the IMS.
+COQ_STATION_X = (CX["CII"] + CX["CIII"]) // 2 + 15
+COQ_STATION_Y = IMS_BOTTOM + 10
+CYTC_STATION_X = (CX["CIII"] + CX["CIV"]) // 2
+CYTC_STATION_Y = IMS_BOTTOM + 10
 
 # Max protons that accumulate visibly in IMS before we stop adding more
 IMS_PROTON_CAP = 100
@@ -244,11 +271,44 @@ def draw_complex_V(surf, cx, cy, rotation=0, blocked=False, highlight=False):
         _draw_block_x(surf, cx, cy)
 
 
+def _draw_skull(surf, cx, cy, size=18, color=(255, 60, 60)):
+    """Draw a skull and crossbones programmatically, no background."""
+    s = size
+    # Skull (circle + jaw)
+    pygame.draw.circle(surf, color, (cx, cy - s // 3), s, 2)
+    pygame.draw.ellipse(surf, color, (cx - s * 2 // 3, cy - s // 6, s * 4 // 3, s * 2 // 3), 2)
+    # Eyes
+    pygame.draw.circle(surf, color, (cx - s // 3, cy - s // 3), s // 5)
+    pygame.draw.circle(surf, color, (cx + s // 3, cy - s // 3), s // 5)
+    # Nose
+    pygame.draw.polygon(surf, color, [(cx, cy - s // 8), (cx - s // 8, cy + s // 8), (cx + s // 8, cy + s // 8)])
+    # Crossbones
+    bx, by = cx, cy + s * 2 // 3
+    bl = s
+    pygame.draw.line(surf, color, (bx - bl, by - s // 3), (bx + bl, by + s // 3), 3)
+    pygame.draw.line(surf, color, (bx + bl, by - s // 3), (bx - bl, by + s // 3), 3)
+    # Bone ends (small circles)
+    for dx, dy in [(-bl, -s // 3), (bl, s // 3), (bl, -s // 3), (-bl, s // 3)]:
+        pygame.draw.circle(surf, color, (bx + dx, by + dy), 3)
+
+
 def _draw_block_x(surf, cx, cy):
-    pygame.draw.line(surf, (239, 83, 80), (cx - 25, cy - 25), (cx + 25, cy + 25), 4)
-    pygame.draw.line(surf, (239, 83, 80), (cx + 25, cy - 25), (cx - 25, cy + 25), 4)
     txt = FONT_TINY.render("BLOCKED", True, (239, 83, 80))
-    surf.blit(txt, (cx - txt.get_width() // 2, cy + 35))
+    surf.blit(txt, (cx - txt.get_width() // 2, cy + 40))
+
+
+def _draw_electron_payload(surf, x, y):
+    """Draw the bright glowing electron payload carried by CoQ or Cyt c.
+       Identical on both carriers so students track 'the electron' as the
+       continuous element through the chain, even though the carriers differ."""
+    # Outer soft glow
+    glow = pygame.Surface((22, 22), pygame.SRCALPHA)
+    pygame.draw.circle(glow, (255, 234, 0, 60), (11, 11), 10)
+    pygame.draw.circle(glow, (255, 234, 0, 110), (11, 11), 7)
+    surf.blit(glow, (int(x) - 11, int(y) - 11))
+    # Solid bright electron core
+    pygame.draw.circle(surf, ELECTRON_COLOR, (int(x), int(y)), 5)
+    pygame.draw.circle(surf, (255, 255, 220), (int(x), int(y)), 5, 1)
 
 
 def draw_coq(surf, x, y, label=True):
@@ -258,8 +318,8 @@ def draw_coq(surf, x, y, label=True):
         pts.append((x + int(10 * math.cos(angle)), y + int(10 * math.sin(angle))))
     pygame.draw.polygon(surf, COQ_ORANGE, pts)
     pygame.draw.polygon(surf, (255, 160, 50), pts, 1)
-    # Small e- indicator inside
-    pygame.draw.circle(surf, ELECTRON_COLOR, (x, y), 3)
+    # Prominent electron payload - identical treatment on both carriers
+    _draw_electron_payload(surf, x, y)
     if label:
         txt = FONT_TINY.render("CoQ", True, COQ_ORANGE)
         surf.blit(txt, (x - txt.get_width() // 2, y - 18))
@@ -268,11 +328,45 @@ def draw_coq(surf, x, y, label=True):
 def draw_cytc(surf, x, y, label=True):
     pygame.draw.circle(surf, CYTC_BLUE_LIGHT, (int(x), int(y)), 9)
     pygame.draw.circle(surf, (100, 130, 200), (int(x), int(y)), 9, 1)
-    # Small e- indicator
-    pygame.draw.circle(surf, ELECTRON_COLOR, (int(x), int(y)), 3)
+    # Prominent electron payload - identical treatment on both carriers
+    _draw_electron_payload(surf, x, y)
     if label:
         txt = FONT_TINY.render("Cyt c", True, CYTC_BLUE_LIGHT)
         surf.blit(txt, (int(x) - txt.get_width() // 2, int(y) - 20))
+
+
+def draw_coq_station(surf, pulse=0):
+    """Stationary CoQ pool marker sitting on the membrane between CII and CIII."""
+    cx, cy = COQ_STATION_X, COQ_STATION_Y
+    w, h = 50, 24
+    if pulse > 0:
+        glow = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
+        alpha = int(min(180, pulse * 14))
+        pygame.draw.rect(glow, (255, 180, 50, alpha),
+                         (12, 12, w, h), border_radius=12)
+        surf.blit(glow, (cx - (w + 24) // 2, cy - (h + 24) // 2))
+    rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
+    pygame.draw.rect(surf, (55, 35, 18), rect, border_radius=12)
+    pygame.draw.rect(surf, COQ_ORANGE, rect, 2, border_radius=12)
+    txt = FONT_SM.render("CoQ", True, (255, 200, 120))
+    surf.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
+
+
+def draw_cytc_station(surf, pulse=0):
+    """Stationary cytochrome c pool marker between CIII and CIV."""
+    cx, cy = CYTC_STATION_X, CYTC_STATION_Y
+    w, h = 54, 24
+    if pulse > 0:
+        glow = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
+        alpha = int(min(180, pulse * 14))
+        pygame.draw.rect(glow, (100, 160, 230, alpha),
+                         (12, 12, w, h), border_radius=12)
+        surf.blit(glow, (cx - (w + 24) // 2, cy - (h + 24) // 2))
+    rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
+    pygame.draw.rect(surf, (22, 30, 55), rect, border_radius=12)
+    pygame.draw.rect(surf, CYTC_BLUE_LIGHT, rect, 2, border_radius=12)
+    txt = FONT_SM.render("Cyt c", True, (160, 190, 235))
+    surf.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +379,7 @@ def draw_membrane(surf):
         pygame.draw.circle(surf, MEMBRANE_EDGE, (x + 7, MEMBRANE_Y - MEMBRANE_H // 2), 5)
         pygame.draw.circle(surf, MEMBRANE_EDGE, (x + 7, MEMBRANE_Y + MEMBRANE_H // 2), 5)
     txt_ims = FONT_MD.render("Intermembrane Space (IMS)", True, LABEL_DIM)
-    surf.blit(txt_ims, (SIM_X + 20, 20))
+    surf.blit(txt_ims, (SIM_X + 20, 42))
     txt_mat = FONT_MD.render("Mitochondrial Matrix", True, LABEL_DIM)
     surf.blit(txt_mat, (SIM_X + 20, HEIGHT - 40))
 
@@ -475,17 +569,210 @@ class WaterParticle:
         surf.blit(txt, (int(self.x) + 8, int(self.y) - 6))
 
 
+class SubstrateEntry:
+    """NADH or FADH2 substrate marker rising from the matrix into CI or CII.
+       Visualizes where electrons enter the chain.
+       The `visible` flag lets us suppress rendering without removing the
+       spawn logic — used to hide FADH2 at CII for the current game level
+       while keeping the code intact for a future 'Level 2' reveal."""
+    def __init__(self, cx, label, color, visible=True):
+        self.x = cx + random.uniform(-6, 6)
+        self.y = MATRIX_TOP + 70
+        self.target_y = MEMBRANE_Y + 18
+        self.label = label
+        self.color = color
+        self.visible = visible
+        self.alpha = 255
+        self.age = 0
+
+    def update(self):
+        self.age += 1
+        if self.age < 28:
+            dy = self.target_y - self.y
+            self.y += dy * 0.12
+        else:
+            self.alpha -= 10
+
+    def draw(self, surf):
+        if not self.visible:
+            return
+        if self.alpha <= 0:
+            return
+        a = int(max(0, min(255, self.alpha)))
+        s = pygame.Surface((16, 16), pygame.SRCALPHA)
+        pygame.draw.circle(s, (*self.color, a), (8, 8), 6)
+        pygame.draw.circle(s, (255, 255, 255, a), (8, 8), 6, 1)
+        surf.blit(s, (int(self.x) - 8, int(self.y) - 8))
+        lbl = FONT_TINY.render(self.label, True, self.color)
+        lbl.set_alpha(a)
+        surf.blit(lbl, (int(self.x) + 9, int(self.y) - 6))
+
+
+class ElectronHandoff:
+    """Brief electron sparkle tracking the CoQ -> CytC handoff through CIII.
+       Travels upward through the complex so the electron visibly continues
+       rather than appearing to vanish and reappear."""
+    def __init__(self, cx, y_start, y_end, duration=16):
+        self.x = cx
+        self.y_start = y_start
+        self.y_end = y_end
+        self.duration = duration
+        self.age = 0
+
+    def update(self):
+        self.age += 1
+
+    @property
+    def done(self):
+        return self.age >= self.duration
+
+    def draw(self, surf):
+        if self.done:
+            return
+        t = self.age / self.duration
+        y = self.y_start + (self.y_end - self.y_start) * t
+        alpha = int(255 * (1 - abs(t - 0.5) * 1.4))
+        alpha = max(60, min(255, alpha))
+        for radius, a_mult in [(10, 0.22), (6, 0.5), (3, 1.0)]:
+            s = pygame.Surface((radius * 2 + 2, radius * 2 + 2), pygame.SRCALPHA)
+            pygame.draw.circle(s, (255, 230, 90, int(alpha * a_mult)),
+                               (radius + 1, radius + 1), radius)
+            surf.blit(s, (int(self.x) - radius - 1, int(y) - radius - 1))
+
+
+class ElectronDescent:
+    """Electron descending through CIV from the CytC docking site down to the
+       matrix side, where it combines with O2 + 2 H+ to form H2O."""
+    def __init__(self, cx, y_start, y_end, duration=28):
+        self.x = cx
+        self.y_start = y_start
+        self.y_end = y_end
+        self.duration = duration
+        self.age = 0
+        self.spawned_water = False
+
+    def update(self):
+        self.age += 1
+        if self.age >= self.duration and not self.spawned_water:
+            sim.water_particles.append(WaterParticle(self.x, self.y_end + 8))
+            self.spawned_water = True
+
+    @property
+    def done(self):
+        return self.age >= self.duration + 8
+
+    def draw(self, surf):
+        if self.age >= self.duration:
+            return
+        t = self.age / self.duration
+        # Ease-in so it accelerates downward
+        y = self.y_start + (self.y_end - self.y_start) * (t * t)
+        for radius, a_mult in [(10, 0.22), (6, 0.5), (3, 1.0)]:
+            s = pygame.Surface((radius * 2 + 2, radius * 2 + 2), pygame.SRCALPHA)
+            pygame.draw.circle(s, (255, 230, 90, int(220 * a_mult)),
+                               (radius + 1, radius + 1), radius)
+            surf.blit(s, (int(self.x) - radius - 1, int(y) - radius - 1))
+        # Label near the moving electron
+        if self.age < self.duration - 4:
+            lbl = FONT_TINY.render("e\u207b", True, (255, 230, 90))
+            surf.blit(lbl, (int(self.x) + 8, int(y) - 6))
+
+
+class ElectronHop:
+    """A glowing electron traveling along a curved path from a source point to
+       a destination. Used to show electron transfer steps between a complex
+       and a CoQ/CytC station, or between a station and the next complex.
+       Each hop carries a 'phase' string so the sim_update loop can dispatch
+       what happens next when the hop arrives (activate next complex, park at
+       station when blocked, etc.).
+
+       After arriving at the destination, the hop is kept on screen for a
+       'linger' period — clamped at the endpoint — so students can clearly
+       see the electron REACH the station or complex before the next hop
+       takes over. Without the linger, the last drawn frame is 1-2 pixels
+       short of the destination, which reads visually as 'fading out'."""
+    def __init__(self, phase, sx, sy, ex, ey, duration=22, control_offset=35):
+        self.phase = phase
+        self.sx, self.sy = sx, sy
+        self.ex, self.ey = ex, ey
+        self.duration = duration
+        self.linger = 18  # frames to hold at endpoint before disappearing
+        self.age = 0.0
+        self.dispatched = False
+        # Quadratic Bezier control point creates a subtle upward arc
+        self.mcx = (sx + ex) / 2
+        self.mcy = (sy + ey) / 2 - control_offset
+
+    def update(self, speed=1.0):
+        self.age += speed
+
+    @property
+    def arrived(self):
+        return self.age >= self.duration
+
+    @property
+    def done(self):
+        return self.age >= self.duration + self.linger
+
+    def _pos(self):
+        t = min(1.0, self.age / self.duration)
+        inv = 1 - t
+        x = inv * inv * self.sx + 2 * inv * t * self.mcx + t * t * self.ex
+        y = inv * inv * self.sy + 2 * inv * t * self.mcy + t * t * self.ey
+        return x, y
+
+    def draw(self, surf):
+        if self.done:
+            return
+        # During travel: use bezier position. During linger: clamp at endpoint
+        # so the electron visibly PARKS at the station before fading.
+        if self.age >= self.duration:
+            x, y = self.ex, self.ey
+            # Fade out over the linger period
+            linger_t = (self.age - self.duration) / self.linger
+            fade = max(0.0, 1.0 - linger_t)
+        else:
+            x, y = self._pos()
+            fade = 1.0
+        # Identical electron glow treatment as the carrier payload so the
+        # student tracks the same visual element through every transfer step.
+        glow_alpha_outer = int(60 * fade)
+        glow_alpha_inner = int(110 * fade)
+        core_alpha = int(255 * fade)
+        glow = pygame.Surface((22, 22), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (255, 234, 0, glow_alpha_outer), (11, 11), 10)
+        pygame.draw.circle(glow, (255, 234, 0, glow_alpha_inner), (11, 11), 7)
+        surf.blit(glow, (int(x) - 11, int(y) - 11))
+        core = pygame.Surface((12, 12), pygame.SRCALPHA)
+        pygame.draw.circle(core, (255, 234, 0, core_alpha), (6, 6), 5)
+        pygame.draw.circle(core, (255, 255, 220, core_alpha), (6, 6), 5, 1)
+        surf.blit(core, (int(x) - 6, int(y) - 6))
+
+
 class CoQShuttle:
-    """Ubiquinone carrying electrons LATERALLY within the membrane from CI/CII to CIII."""
-    def __init__(self, start_x, end_x):
+    """Ubiquinone carrying electrons LATERALLY within the membrane from CI/CII to CIII.
+       spawn_delay holds the shuttle invisible at start_x for N frames before it
+       becomes visible and begins moving. Used so that CII's electron rise can
+       visibly complete before the CoQ picks up the electron."""
+    def __init__(self, start_x, end_x, spawn_delay=0):
         self.x = start_x
         self.y = MEMBRANE_Y + random.uniform(-8, 8)
         self.end_x = end_x
         self.speed = 1.8
         self.alive = True
         self.arrived = False
+        self.stuck = False  # True when CIII is backed up
+        self.wobble = random.uniform(0, 2 * math.pi)
+        self.spawn_delay = spawn_delay
 
     def update(self, speed):
+        if self.spawn_delay > 0:
+            self.spawn_delay -= 1
+            return
+        if self.stuck:
+            self.wobble += 0.05
+            self.x = self.end_x - 20 + math.sin(self.wobble) * 10
+            return
         dx = self.end_x - self.x
         if abs(dx) < 5:
             self.alive = False
@@ -494,7 +781,11 @@ class CoQShuttle:
             self.x += (dx / abs(dx)) * self.speed * speed
 
     def draw(self, surf):
+        if self.spawn_delay > 0:
+            return
         draw_coq(surf, int(self.x), int(self.y), label=False)
+        if self.stuck:
+            pygame.draw.circle(surf, (255, 80, 80), (int(self.x), int(self.y)), 12, 1)
 
 
 class CytCShuttle:
@@ -506,8 +797,16 @@ class CytCShuttle:
         self.speed = 2.0
         self.alive = True
         self.arrived = False
+        self.stuck = False  # True when CIV is blocked - piles up at CIV
+        self.wobble = random.uniform(0, 2 * math.pi)
 
     def update(self, speed):
+        if self.stuck:
+            # Jitter in place near CIV to show it's stuck
+            self.wobble += 0.05
+            self.x = self.end_x + math.sin(self.wobble) * 8
+            self.y = IMS_BOTTOM - 15 + math.cos(self.wobble * 0.7) * 5
+            return
         dx = self.end_x - self.x
         if abs(dx) < 5:
             self.alive = False
@@ -517,6 +816,9 @@ class CytCShuttle:
 
     def draw(self, surf):
         draw_cytc(surf, self.x, self.y, label=False)
+        if self.stuck:
+            # Red outline to show it's stuck
+            pygame.draw.circle(surf, (255, 80, 80), (int(self.x), int(self.y)), 11, 1)
 
 
 class ATPParticle:
@@ -703,6 +1005,14 @@ class SimState:
         self.atp_particles = []
         self.ros_particles = []
         self.water_particles = []
+        self.substrate_entries = []   # NADH/FADH2 entry markers at CI/CII
+        self.electron_handoffs = []   # legacy visual sparkles (reused for CII rise)
+        self.electron_descents = []   # electron descending through CIV to water
+        self.electron_hops = []       # electron hops between complexes and stations
+        self.parked_at_coq = []       # electrons held at CoQ station when CIII blocked
+        self.parked_at_cytc = []      # electrons held at CytC station when CIV blocked
+        self.coq_station_pulse = 0    # brief highlight when CoQ receives/sends
+        self.cytc_station_pulse = 0   # same for CytC station
 
         # Complex activation flash timers (frames remaining)
         self.complex_active = {"CI": 0, "CII": 0, "CIII": 0, "CIV": 0, "CV": 0}
@@ -713,7 +1023,7 @@ class SimState:
 
         self.cv_rotation = 0.0
         self.frame = 0
-        self.flux = 1.5
+        self.flux = 0.75
         self.paused = False
 
         self.blocked = {"CI": False, "CII": False, "CIII": False, "CIV": False, "CV": False}
@@ -727,11 +1037,31 @@ class SimState:
 
         self.info_panel = None
         self.info_panel_rect = None
+        self.ref_link_rect = None
+        self.ref_link_url = None
         self.sidebar_scroll = 0
         self.sidebar_max_scroll = 0
         self.dragging_chem = None
         self.drag_pos = (0, 0)
         self.hovered_complex = None
+
+        # Electron backup tracking
+        self.stuck_cytc_count = 0
+        self.stuck_coq_count = 0
+        self.ciii_backed_up = False
+        self.ci_backed_up = False
+        self.chain_status = "normal"
+
+        # Narrative cascade system
+        self.narrative_events = []
+        self.narrative_queue = []
+        self.narrative_timer = 0
+
+        # Toxin alert overlay (large blinking skull with name)
+        self.toxin_alert_name = None
+        self.toxin_alert_full = None
+        self.toxin_alert_target = None   # complex key like "CIV", "CI", "membrane"
+        self.toxin_alert_timer = 0
 
         # Gradient counter for HUD
         self.gradient_display = 0
@@ -741,6 +1071,7 @@ class SimState:
             return
         self.active_chemicals.append(chem)
         self._apply_effect(chem)
+        self._trigger_narrative(chem)
 
     def remove_chemical(self, chem_id):
         self.active_chemicals = [c for c in self.active_chemicals if c["id"] != chem_id]
@@ -750,6 +1081,18 @@ class SimState:
         self.uncoupler_strength = 0.0
         self.transport_blocked = False
         self.ros_generating = {"CI": False}
+        # Clear narrative and toxin alert
+        self.narrative_events = []
+        self.narrative_queue = []
+        self.narrative_timer = 0
+        self.toxin_alert_name = None
+        self.toxin_alert_full = None
+        self.toxin_alert_target = None
+        self.toxin_alert_timer = 0
+        # Clear parked electrons and any in-flight hops so the chain resumes clean
+        self.parked_at_coq = []
+        self.parked_at_cytc = []
+        self.electron_hops = []
         for c in self.active_chemicals:
             self._apply_effect(c)
 
@@ -778,6 +1121,197 @@ class SimState:
     def effective_cii_rate(self):
         return 0.0 if self.blocked["CII"] else 1.0
 
+    # Short display names for toxin alert overlay
+    TOXIN_SHORT_NAMES = {
+        "carbon_monoxide": "CO",
+        "cyanide": "CN\u207b",
+        "hydrogen_sulfide": "H\u2082S",
+        "azide": "NaN\u2083",
+        "rotenone": "ROT",
+        "piericidin_a": "PierA",
+        "barbiturates": "BARB",
+        "antimycin_a": "AA",
+        "myxothiazol": "MYX",
+        "oligomycin": "OLI",
+        "dnp": "DNP",
+        "fccp": "FCCP",
+        "cccp": "CCCP",
+        "malonate": "MAL",
+        "ttfa": "TTFA",
+        "atractyloside": "ATR",
+        "metformin": "MET",
+        "mptp": "MPP\u207a",
+        "doxorubicin": "DOX",
+        "thermogenin": "UCP1",
+    }
+
+    def _trigger_narrative(self, chem):
+        """Queue a timed narrative cascade for the applied chemical."""
+        self.narrative_events = []
+        self.narrative_queue = []
+        self.narrative_timer = 0
+
+        # Set toxin alert overlay
+        self.toxin_alert_name = self.TOXIN_SHORT_NAMES.get(chem["id"], chem["name"][:6])
+        self.toxin_alert_full = chem["name"]
+        self.toxin_alert_target = chem["target"]
+        self.toxin_alert_timer = 0
+
+        target = chem["target"]
+        effect = chem["effect"]
+        name = chem["name"]
+
+        if effect == "block" and target == "CIV":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} binds Complex IV (cytochrome c oxidase)",
+                 "color": (255, 80, 80), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "Electron transfer to O\u2082 is BLOCKED \u2014 no water produced",
+                 "color": (255, 150, 80), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "Cytochrome c backs up at Complex IV \u2014 cannot deliver electrons",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "Complex III backs up \u2014 CoQ cannot offload electrons",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 125},
+                {"delay": 500, "text": "Complex I stops pumping \u2014 entire ETC is frozen",
+                 "color": (255, 100, 100), "duration": 300, "y_pos": 150},
+                {"delay": 650, "text": "H\u207a gradient collapsing \u2014 no new protons pumped into IMS",
+                 "color": (255, 80, 80), "duration": 400, "y_pos": 175},
+                {"delay": 850, "text": "ATP production STOPS \u2014 cell energy crisis!",
+                 "color": (255, 50, 50), "duration": 500, "y_pos": 200},
+            ]
+
+        elif effect == "block" and target == "CIII":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} binds Complex III (cytochrome bc\u2081)",
+                 "color": (255, 80, 80), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "Electron transfer from CoQ to Cyt c is BLOCKED",
+                 "color": (255, 150, 80), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "CoQ backs up \u2014 Complex I and Complex II cannot offload electrons",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "H\u207a pumping stops at Complex I and Complex III \u2014 gradient collapsing",
+                 "color": (255, 100, 100), "duration": 300, "y_pos": 125},
+                {"delay": 500, "text": "Partial electron transfer generates ROS (superoxide O\u2082\u207b)",
+                 "color": (255, 50, 50), "duration": 400, "y_pos": 150},
+                {"delay": 700, "text": "ATP production STOPS \u2014 oxidative damage!",
+                 "color": (255, 50, 50), "duration": 500, "y_pos": 175},
+            ]
+
+        elif effect == "block" and target == "CI":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} blocks Complex I (NADH dehydrogenase)",
+                 "color": (255, 80, 80), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "NADH cannot donate electrons \u2014 CI is inhibited",
+                 "color": (255, 150, 80), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "FADH\u2082 via Complex II still works \u2014 partial electron flow remains",
+                 "color": (200, 200, 100), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "H\u207a pumping reduced ~60% \u2014 gradient weakens",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 125},
+                {"delay": 500, "text": "ATP production drops significantly",
+                 "color": (255, 100, 100), "duration": 400, "y_pos": 150},
+            ]
+
+        elif effect == "block" and target == "CII":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} blocks Complex II (succinate dehydrogenase)",
+                 "color": (255, 80, 80), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "FADH\u2082 cannot donate electrons \u2014 Complex II inhibited",
+                 "color": (255, 150, 80), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "NADH via CI still works \u2014 most electron flow continues",
+                 "color": (200, 200, 100), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "ATP production reduced ~20%",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 125},
+            ]
+
+        elif effect == "block" and target == "CV":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} blocks the F\u2080 proton channel of ATP synthase",
+                 "color": (255, 80, 80), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "Protons CANNOT flow back into matrix through CV",
+                 "color": (255, 150, 80), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "H\u207a gradient builds to maximum \u2014 backpressure on ETC",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "ETC slows \u2014 too much gradient resistance to pump more H\u207a",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 125},
+                {"delay": 500, "text": "ATP synthesis STOPS \u2014 despite intact electron transport!",
+                 "color": (255, 50, 50), "duration": 500, "y_pos": 150},
+            ]
+
+        elif effect == "uncouple":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} \u2014 protonophore inserted into membrane",
+                 "color": (255, 152, 0), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "H\u207a leaks across membrane \u2014 bypasses ATP synthase",
+                 "color": (255, 180, 50), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "ETC runs FASTER (no backpressure) \u2014 O\u2082 consumption increases",
+                 "color": (200, 200, 100), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "Proton gradient dissipated as HEAT instead of ATP",
+                 "color": (255, 150, 50), "duration": 300, "y_pos": 125},
+                {"delay": 500, "text": "ATP production drops \u2014 energy wasted as heat!",
+                 "color": (255, 80, 80), "duration": 400, "y_pos": 150},
+            ]
+
+        elif effect == "partial_block" and target == "CI":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} mildly inhibits Complex I",
+                 "color": (200, 200, 100), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "NADH electron flow reduced \u2014 not fully blocked",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "Lower ATP \u2192 AMPK activated \u2192 increases glucose uptake",
+                 "color": (100, 200, 100), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "Therapeutic effect: helps control blood sugar in diabetes",
+                 "color": (100, 200, 255), "duration": 400, "y_pos": 125},
+            ]
+
+        elif effect == "ros_generation":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} accepts electrons from Complex I",
+                 "color": (255, 80, 80), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "Electrons transferred directly to O\u2082 \u2192 superoxide (O\u2082\u207b)",
+                 "color": (255, 100, 100), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "Reactive oxygen species (ROS) damage mitochondrial components",
+                 "color": (255, 50, 50), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "Cardiotoxicity \u2014 high mitochondrial density in heart cells",
+                 "color": (255, 50, 50), "duration": 400, "y_pos": 125},
+            ]
+
+        elif effect == "transport_block":
+            self.narrative_queue = [
+                {"delay": 0,   "text": f"{name} blocks adenine nucleotide translocase (ANT)",
+                 "color": (255, 80, 80), "duration": 300, "y_pos": 50},
+                {"delay": 90,  "text": "ATP cannot exit mitochondria \u2014 ADP cannot enter",
+                 "color": (255, 150, 80), "duration": 300, "y_pos": 75},
+                {"delay": 200, "text": "ATP accumulates inside \u2014 feedback inhibits ATP synthase",
+                 "color": (255, 200, 80), "duration": 300, "y_pos": 100},
+                {"delay": 350, "text": "Cell starved of ATP despite mitochondria producing it!",
+                 "color": (255, 50, 50), "duration": 400, "y_pos": 125},
+            ]
+
+    def update_narrative(self):
+        """Advance the narrative timer and fire queued events."""
+        self.narrative_timer += 1
+
+        # Fire queued events whose delay has passed
+        remaining = []
+        for evt in self.narrative_queue:
+            if self.narrative_timer >= evt["delay"]:
+                self.narrative_events.append({
+                    "text": evt["text"],
+                    "color": evt["color"],
+                    "y_pos": evt["y_pos"],
+                    "age": 0,
+                })
+            else:
+                remaining.append(evt)
+        self.narrative_queue = remaining
+
+        # Age events (for fade-in effect only)
+        for evt in self.narrative_events:
+            evt["age"] += 1
+        # Events persist - they are only cleared when chemicals are removed
+
+        # Tick toxin alert
+        if self.toxin_alert_name:
+            self.toxin_alert_timer += 1
+
 
 sim = SimState()
 
@@ -793,49 +1327,150 @@ def sim_update():
     cii_rate = sim.effective_cii_rate()
     ciii_ok = not sim.blocked["CIII"]
     civ_ok = not sim.blocked["CIV"]
-    downstream_ok = ciii_ok and civ_ok
 
-    # --- Step 1: NADH donates electrons to Complex I ---
-    # CI accepts electrons, pumps 4H+, passes e- to CoQ
+    # --- Cascade backup logic (station-based) ---
+    # Count parked electrons at each station to determine backup state.
+    sim.stuck_coq_count = len(sim.parked_at_coq)
+    sim.stuck_cytc_count = len(sim.parked_at_cytc)
+
+    # CoQ station full -> CI/CII cannot offload to CoQ (= "ci_backed_up")
+    sim.ci_backed_up = sim.stuck_coq_count >= 5
+    # CytC station full -> CIII cannot offload to CytC (= "ciii_backed_up")
+    sim.ciii_backed_up = sim.stuck_cytc_count >= 5
+
+    if sim.ci_backed_up:
+        sim.chain_status = "blocked"
+    elif sim.ciii_backed_up or sim.stuck_cytc_count > 0 or sim.stuck_coq_count > 0:
+        sim.chain_status = "backing_up"
+    else:
+        sim.chain_status = "normal"
+
+    # --- Step 1: NADH donates electrons to Complex I, which hops e- to CoQ ---
+    # Hop path stays WITHIN the membrane bilayer (CoQ is a lipid-soluble
+    # carrier that resides inside the membrane).
     spawn_nadh = max(1, int(55 / flux))
-    if ci_rate > 0 and downstream_ok and f % spawn_nadh == 0:
+    ci_can_work = ci_rate > 0 and not sim.blocked["CI"] and not sim.ci_backed_up
+    if ci_can_work and f % spawn_nadh == 0:
         if ci_rate < 1.0 and random.random() > ci_rate:
             pass
         else:
-            # CI activates: pump protons, launch CoQ shuttle
             sim.complex_active["CI"] = 20
             _pump_protons("CI", 4)
-            sim.coq_shuttles.append(CoQShuttle(CX["CI"] + 40, CX["CIII"]))
+            sim.substrate_entries.append(
+                SubstrateEntry(CX["CI"], "NADH", (120, 220, 255)))
+            sim.electron_hops.append(ElectronHop(
+                "to_CoQ",
+                CX["CI"] + 35, MEMBRANE_Y,
+                COQ_STATION_X, COQ_STATION_Y,
+                duration=22, control_offset=3))
 
-    # --- Step 2: FADH2 donates electrons to Complex II ---
-    # CII accepts electrons (no pump), passes e- to CoQ
+    # --- Step 2: FADH2 donates electrons to Complex II, which hops e- to CoQ ---
     spawn_fadh2 = max(1, int(80 / flux))
-    if cii_rate > 0 and downstream_ok and f % spawn_fadh2 == 0:
+    cii_can_work = cii_rate > 0 and not sim.blocked["CII"] and not sim.ci_backed_up
+    if cii_can_work and f % spawn_fadh2 == 0:
         sim.complex_active["CII"] = 20
-        sim.coq_shuttles.append(CoQShuttle(CX["CII"] + 35, CX["CIII"]))
+        # FADH2 entry marker is spawned but hidden for current game level;
+        # re-enable by setting visible=True for a future "Level 2" reveal.
+        sim.substrate_entries.append(
+            SubstrateEntry(CX["CII"], "FADH\u2082", (255, 180, 100), visible=False))
+        # Start at CII's TOP edge (y=408, where CII meets the membrane) so
+        # the yellow electron is visible against the dark membrane rather
+        # than blending with CII's red body. The electron then curves up
+        # through the membrane to the CoQ station. Slow duration so the
+        # less-frequent FADH2 contribution is clearly trackable.
+        sim.electron_hops.append(ElectronHop(
+            "to_CoQ",
+            CX["CII"], MEMBRANE_Y + 28,
+            COQ_STATION_X, COQ_STATION_Y,
+            duration=32, control_offset=14))
 
-    # --- Step 3: CoQ shuttles carry e- laterally to CIII ---
-    for c in sim.coq_shuttles:
-        c.update(flux)
-        if c.arrived:
-            # CIII activates: pump 4H+, launch Cyt c
-            sim.complex_active["CIII"] = 20
-            if ciii_ok:
+    # --- Step 3: Process electron hops, dispatching phase transitions ---
+    spawned_hops = []
+    for h in sim.electron_hops:
+        h.update(flux)
+        if h.arrived and not h.dispatched:
+            h.dispatched = True
+            if h.phase == "to_CoQ":
+                sim.coq_station_pulse = 35
+                if ciii_ok and not sim.ciii_backed_up:
+                    # Continue: CoQ station -> CIII (stays within membrane)
+                    spawned_hops.append(ElectronHop(
+                        "to_CIII",
+                        COQ_STATION_X, COQ_STATION_Y,
+                        CX["CIII"] - 35, MEMBRANE_Y,
+                        duration=22, control_offset=3))
+                else:
+                    # CIII blocked or backed up - park electron at CoQ station
+                    if len(sim.parked_at_coq) < 8:
+                        sim.parked_at_coq.append({
+                            "wobble": random.uniform(0, 2 * math.pi),
+                            "phase_offset": random.uniform(-0.5, 0.5),
+                        })
+            elif h.phase == "to_CIII":
+                # Electron arrives at CIII: activate, pump, then hop to CytC
+                sim.complex_active["CIII"] = 20
                 _pump_protons("CIII", 4)
-                sim.cytc_shuttles.append(CytCShuttle(CX["CIII"], CX["CIV"]))
-    sim.coq_shuttles = [c for c in sim.coq_shuttles if c.alive]
-
-    # --- Step 4: Cyt c carries e- along IMS to CIV ---
-    for c in sim.cytc_shuttles:
-        c.update(flux)
-        if c.arrived:
-            # CIV activates: pump 2H+ to IMS, AND consume 2 matrix H+ to form H2O
-            sim.complex_active["CIV"] = 20
-            if civ_ok:
+                spawned_hops.append(ElectronHop(
+                    "to_CytC",
+                    CX["CIII"] + 35, MEMBRANE_Y,
+                    CYTC_STATION_X, CYTC_STATION_Y,
+                    duration=22, control_offset=3))
+            elif h.phase == "to_CytC":
+                sim.cytc_station_pulse = 35
+                if civ_ok:
+                    # Continue: CytC station -> CIV (stays within membrane)
+                    spawned_hops.append(ElectronHop(
+                        "to_CIV",
+                        CYTC_STATION_X, CYTC_STATION_Y,
+                        CX["CIV"] - 35, MEMBRANE_Y,
+                        duration=22, control_offset=3))
+                else:
+                    # CIV blocked - park electron at CytC station
+                    if len(sim.parked_at_cytc) < 8:
+                        sim.parked_at_cytc.append({
+                            "wobble": random.uniform(0, 2 * math.pi),
+                            "phase_offset": random.uniform(-0.5, 0.5),
+                        })
+            elif h.phase == "to_CIV":
+                # Electron arrives at CIV: activate, pump, begin descent to water
+                sim.complex_active["CIV"] = 20
                 _pump_protons("CIV", 2)
-                # CIV also consumes 2 matrix H+ (combined with O2 to form water)
                 _consume_matrix_protons_for_water("CIV", 2)
-    sim.cytc_shuttles = [c for c in sim.cytc_shuttles if c.alive]
+                sim.electron_descents.append(
+                    ElectronDescent(CX["CIV"], MEMBRANE_Y, MATRIX_TOP + 20))
+    sim.electron_hops.extend(spawned_hops)
+    sim.electron_hops = [h for h in sim.electron_hops if not h.done]
+
+    # --- Station pulses decay ---
+    if sim.coq_station_pulse > 0:
+        sim.coq_station_pulse -= 1
+    if sim.cytc_station_pulse > 0:
+        sim.cytc_station_pulse -= 1
+
+    # --- Release parked electrons when downstream blocks clear ---
+    release_interval = max(1, int(18 / flux))
+    if ciii_ok and not sim.ciii_backed_up and sim.parked_at_coq and f % release_interval == 0:
+        sim.parked_at_coq.pop(0)
+        sim.electron_hops.append(ElectronHop(
+            "to_CIII",
+            COQ_STATION_X, COQ_STATION_Y,
+            CX["CIII"] - 35, MEMBRANE_Y,
+            duration=22, control_offset=3))
+        sim.coq_station_pulse = 20
+    if civ_ok and sim.parked_at_cytc and f % release_interval == 0:
+        sim.parked_at_cytc.pop(0)
+        sim.electron_hops.append(ElectronHop(
+            "to_CIV",
+            CYTC_STATION_X, CYTC_STATION_Y,
+            CX["CIV"] - 35, MEMBRANE_Y,
+            duration=22, control_offset=3))
+        sim.cytc_station_pulse = 20
+
+    # --- Update parked electron wobble phase ---
+    for p in sim.parked_at_coq:
+        p["wobble"] += 0.06
+    for p in sim.parked_at_cytc:
+        p["wobble"] += 0.06
 
     # --- Step 5: Pumping protons travel upward into IMS ---
     for p in sim.pumping_protons:
@@ -940,6 +1575,23 @@ def sim_update():
         w.update()
     sim.water_particles = [w for w in sim.water_particles if w.alpha > 0]
 
+    # --- Substrate entry markers (NADH at CI, FADH2 at CII) ---
+    for se in sim.substrate_entries:
+        se.update()
+    sim.substrate_entries = [se for se in sim.substrate_entries if se.alpha > 0]
+
+    # --- Electron handoff sparkles at CIII (CoQ -> CytC) ---
+    for eh in sim.electron_handoffs:
+        eh.update()
+    sim.electron_handoffs = [eh for eh in sim.electron_handoffs if not eh.done]
+
+    # --- Electron descents through CIV (to water) ---
+    for ed in sim.electron_descents:
+        ed.update()
+    sim.electron_descents = [ed for ed in sim.electron_descents if not ed.done]
+
+    # Note: electron_hops are already updated and pruned in Step 3 above.
+
     # --- ATP particles ---
     for a in sim.atp_particles:
         a.update()
@@ -963,6 +1615,9 @@ def sim_update():
     for k in sim.complex_active:
         if sim.complex_active[k] > 0:
             sim.complex_active[k] -= 1
+
+    # --- Narrative events ---
+    sim.update_narrative()
 
     sim.frame += 1
 
@@ -995,7 +1650,9 @@ def _pump_protons(complex_key, count):
 
 
 def _consume_matrix_protons_for_water(complex_key, count):
-    """CIV consumes matrix H+ to combine with O2, producing H2O."""
+    """CIV consumes matrix H+ that will combine with O2 to form H2O.
+       The water particle itself is spawned by the ElectronDescent visual
+       when the electron reaches the matrix side of CIV."""
     cx = CX[complex_key]
     for _ in range(count):
         if sim.matrix_protons:
@@ -1007,8 +1664,6 @@ def _consume_matrix_protons_for_water(complex_key, count):
                     best_dist = d
                     best_idx = i
             sim.matrix_protons.pop(best_idx)
-    # Produce one H2O molecule (2H+ + 1/2 O2 -> H2O)
-    sim.water_particles.append(WaterParticle(cx, MATRIX_TOP + 40))
 
 
 # ---------------------------------------------------------------------------
@@ -1023,39 +1678,6 @@ def draw_all(mx, my):
 
     # Membrane
     draw_membrane(screen)
-
-    # Static carrier pathway labels
-    # CoQ path (horizontal arrow in membrane between CI/CII and CIII)
-    coq_start = CX["CI"] + 50
-    coq_end = CX["CIII"] - 35
-    coq_mid = (coq_start + coq_end) // 2
-    pygame.draw.line(screen, COQ_ORANGE, (coq_start, MEMBRANE_Y), (coq_end, MEMBRANE_Y), 1)
-    # Arrowhead
-    pygame.draw.polygon(screen, COQ_ORANGE,
-                        [(coq_end, MEMBRANE_Y), (coq_end - 8, MEMBRANE_Y - 4), (coq_end - 8, MEMBRANE_Y + 4)])
-    txt = FONT_TINY.render("CoQ (in membrane)", True, COQ_ORANGE)
-    screen.blit(txt, (coq_mid - txt.get_width() // 2, MEMBRANE_Y + 12))
-
-    # Also from CII
-    coq2_start = CX["CII"] + 35
-    pygame.draw.line(screen, COQ_ORANGE, (coq2_start, MEMBRANE_Y + 5), (coq_end, MEMBRANE_Y + 5), 1)
-
-    # Cyt c path (horizontal in IMS between CIII and CIV)
-    cytc_start = CX["CIII"] + 35
-    cytc_end = CX["CIV"] - 30
-    cytc_mid = (cytc_start + cytc_end) // 2
-    cytc_y = IMS_BOTTOM - 15
-    pygame.draw.line(screen, CYTC_BLUE_LIGHT, (cytc_start, cytc_y), (cytc_end, cytc_y), 1)
-    pygame.draw.polygon(screen, CYTC_BLUE_LIGHT,
-                        [(cytc_end, cytc_y), (cytc_end - 8, cytc_y - 4), (cytc_end - 8, cytc_y + 4)])
-    txt = FONT_TINY.render("Cyt c (in IMS)", True, CYTC_BLUE_LIGHT)
-    screen.blit(txt, (cytc_mid - txt.get_width() // 2, cytc_y - 18))
-
-    # Mobile carriers (CoQ shuttles move within membrane, Cyt c above)
-    for c in sim.coq_shuttles:
-        c.draw(screen)
-    for c in sim.cytc_shuttles:
-        c.draw(screen)
 
     # Complexes
     hovered = get_complex_at(mx, my)
@@ -1078,10 +1700,42 @@ def draw_all(mx, my):
                    blocked=sim.blocked["CV"] or sim.transport_blocked,
                    highlight=(hovered == "CV"))
 
+    # CoQ and CytC stations (drawn after complexes, on top of the membrane)
+    draw_coq_station(screen, pulse=sim.coq_station_pulse)
+    draw_cytc_station(screen, pulse=sim.cytc_station_pulse)
+
+    # Parked electrons at stations (when downstream is blocked)
+    for i, p in enumerate(sim.parked_at_coq):
+        offset_x = math.cos(p["wobble"]) * 18
+        offset_y = math.sin(p["wobble"]) * 10 - 22 - (i // 4) * 14
+        px = COQ_STATION_X + offset_x
+        py = COQ_STATION_Y + offset_y
+        _draw_electron_payload(screen, px, py)
+    for i, p in enumerate(sim.parked_at_cytc):
+        offset_x = math.cos(p["wobble"]) * 18
+        offset_y = math.sin(p["wobble"]) * 10 - 22 - (i // 4) * 14
+        px = CYTC_STATION_X + offset_x
+        py = CYTC_STATION_Y + offset_y
+        _draw_electron_payload(screen, px, py)
+
     # Partial block indicator
     if sim.partial_block.get("CI"):
         txt = FONT_TINY.render("PARTIAL INHIBITION", True, (255, 200, 50))
         screen.blit(txt, (CX["CI"] - txt.get_width() // 2, MEMBRANE_Y + 78))
+
+    # Electron backup labels near stations
+    if sim.stuck_cytc_count > 0:
+        txt = FONT_TINY.render(
+            f"e\u207b backup ({sim.stuck_cytc_count} parked at Cyt c)",
+            True, (255, 100, 100))
+        screen.blit(txt, (CYTC_STATION_X - txt.get_width() // 2, COQ_STATION_Y - 60))
+    if sim.stuck_coq_count > 0:
+        txt = FONT_TINY.render(
+            f"e\u207b backup ({sim.stuck_coq_count} parked at CoQ)",
+            True, (255, 100, 100))
+        screen.blit(txt, (COQ_STATION_X - txt.get_width() // 2, COQ_STATION_Y - 60))
+
+    # (skull image is drawn by _draw_block_x inside each complex's draw function)
 
     # Uncoupler visual
     if sim.uncoupled:
@@ -1137,6 +1791,22 @@ def draw_all(mx, my):
     for w in sim.water_particles:
         w.draw(screen)
 
+    # Substrate entries (NADH/FADH2 feeding into CI/CII)
+    for se in sim.substrate_entries:
+        se.draw(screen)
+
+    # Electron handoff sparkles at CIII
+    for eh in sim.electron_handoffs:
+        eh.draw(screen)
+
+    # Electron descent through CIV into water
+    for ed in sim.electron_descents:
+        ed.draw(screen)
+
+    # Electron hops between complexes and CoQ/CytC stations
+    for h in sim.electron_hops:
+        h.draw(screen)
+
     # Gradient indicator text in IMS
     if sim.gradient_display > 0:
         g_txt = FONT_SM.render(f"H\u207a gradient: {sim.gradient_display} protons in IMS", True, PROTON_COLOR)
@@ -1162,14 +1832,67 @@ def draw_all(mx, my):
         screen.blit(tip_bg, (mx + 15, my - 25))
         screen.blit(tip, (mx + 23, my - 21))
 
-    # Dragging chemical
-    if sim.dragging_chem:
-        dx, dy = sim.drag_pos
-        s = pygame.Surface((180, 36), pygame.SRCALPHA)
-        pygame.draw.rect(s, (60, 60, 80, 200), (0, 0, 180, 36), border_radius=8)
-        ntxt = FONT_TITLE.render(sim.dragging_chem["name"], True, ACCENT)
-        s.blit(ntxt, (8, 8))
-        screen.blit(s, (dx - 90, dy - 18))
+    # Narrative event text - left-aligned, numbered, one fitted box around all
+    if sim.narrative_events:
+        # Render all lines first to find the widest one
+        rendered = []
+        max_w = 0
+        for i, evt in enumerate(sim.narrative_events):
+            alpha = min(255, evt["age"] * 10)
+            label = f"{i + 1}. {evt['text']}"
+            txt = FONT_MD.render(label, True, evt["color"])
+            txt.set_alpha(alpha)
+            rendered.append((txt, evt["y_pos"], alpha))
+            if txt.get_width() > max_w:
+                max_w = txt.get_width()
+
+        # Draw one background box that fits all statements
+        first_y = rendered[0][1]
+        last_y = rendered[-1][1]
+        box_x = SIM_X + 8
+        box_y = first_y - 6
+        box_w = max_w + 24
+        box_h = (last_y - first_y) + 30
+        bg_surf = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+        bg_surf.fill((0, 0, 0, 190))
+        screen.blit(bg_surf, (box_x, box_y))
+
+        # Draw each line
+        for txt, y_pos, alpha in rendered:
+            screen.blit(txt, (box_x + 10, y_pos))
+
+    # Blinking toxin alert - large skull over the target complex
+    if sim.toxin_alert_name:
+        t = sim.toxin_alert_timer
+        blink_cycle = t % 60
+        blink_on = blink_cycle < 40
+
+        if blink_on:
+            # Position over the target complex
+            target = sim.toxin_alert_target
+            if target in CX:
+                alert_cx = CX[target]
+                alert_cy = MEMBRANE_Y if target != "CII" else MEMBRANE_Y + 50
+            elif target == "membrane":
+                alert_cx = SIM_X + SIM_W // 2
+                alert_cy = MEMBRANE_Y
+            elif target == "ANT":
+                alert_cx = CX["CV"] - 80
+                alert_cy = MEMBRANE_Y
+            else:
+                alert_cx = SIM_X + SIM_W // 2
+                alert_cy = MEMBRANE_Y
+
+            # Draw large skull programmatically
+            _draw_skull(screen, alert_cx, alert_cy - 50, size=40, color=(255, 50, 50))
+
+            # Chemical short name below skull
+            name_txt = FONT_XL.render(sim.toxin_alert_name, True, (255, 60, 60))
+            screen.blit(name_txt, (alert_cx - name_txt.get_width() // 2, alert_cy + 30))
+
+            # Full name below that
+            full_txt = FONT_SM.render(sim.toxin_alert_full, True, (255, 150, 150))
+            screen.blit(full_txt, (alert_cx - full_txt.get_width() // 2, alert_cy + 58))
 
     # Info panel (on top)
     draw_info_panel(screen)
@@ -1186,13 +1909,13 @@ def draw_sidebar(surf, mx, my):
 
     title = FONT_XL.render("Chemicals", True, ACCENT)
     surf.blit(title, (15, 12))
-    subtitle = FONT_TINY.render("Drag onto simulation or click to learn more", True, LABEL_DIM)
+    subtitle = FONT_TINY.render("Click to apply/remove \u2022 Right-click for info", True, LABEL_DIM)
     surf.blit(subtitle, (15, 42))
     pygame.draw.line(surf, (60, 60, 80), (10, 60), (SIDEBAR_W - 10, 60))
 
     list_y_start = 70
     item_h = 52
-    visible_h = HEIGHT - list_y_start - 100
+    visible_h = HEIGHT - list_y_start - 130
     total_h = len(CHEMICALS) * item_h
     sim.sidebar_max_scroll = max(0, total_h - visible_h)
 
@@ -1242,7 +1965,7 @@ def draw_sidebar(surf, mx, my):
                                                (SIDEBAR_W // 2 + 8, by - 5),
                                                (SIDEBAR_W // 2, by + 2)])
 
-    btn_y = HEIGHT - 90
+    btn_y = HEIGHT - 120
     pause_rect = pygame.Rect(10, btn_y, 80, 32)
     pause_hover = pause_rect.collidepoint(mx, my)
     draw_rounded_rect(surf, BUTTON_HOVER if pause_hover else BUTTON_COLOR, pause_rect, 6)
@@ -1266,8 +1989,21 @@ def draw_sidebar(surf, mx, my):
     surf.blit(stxt, (10, slider_y))
     slider_rect = pygame.Rect(10, slider_y + 18, SIDEBAR_W - 20, 12)
     pygame.draw.rect(surf, (60, 60, 80), slider_rect, border_radius=6)
-    knob_x = slider_rect.x + int((sim.flux - 0.5) / 2.5 * slider_rect.w)
+    knob_x = slider_rect.x + int((sim.flux / 2.0) * slider_rect.w)
     pygame.draw.circle(surf, ACCENT, (knob_x, slider_rect.y + 6), 8)
+
+    # Request / comment block
+    req_y = slider_y + 36
+    pygame.draw.line(surf, (60, 60, 80), (10, req_y), (SIDEBAR_W - 10, req_y))
+    req_y += 5
+    req_txt1 = FONT_TINY.render("Comment or request a chemical addition:", True, (140, 140, 140))
+    surf.blit(req_txt1, (10, req_y)); req_y += 15
+    email_txt = FONT_TINY.render("support@womenadrift.com", True, (80, 180, 255))
+    surf.blit(email_txt, (10, req_y))
+    # Underline the email
+    pygame.draw.line(surf, (80, 180, 255), (10, req_y + 12), (10 + email_txt.get_width(), req_y + 12), 1)
+    # Store email rect for click detection
+    sim.email_rect = pygame.Rect(10, req_y, email_txt.get_width(), 14)
 
     return {
         "pause": pause_rect, "step": step_rect, "reset": reset_rect,
@@ -1283,14 +2019,10 @@ def draw_info_panel(surf):
     if sim.info_panel is None:
         return
 
-    pw, ph = 450, 380
-    px = (WIDTH - pw) // 2
-    py = (HEIGHT - ph) // 2
+    pw, ph = SIDEBAR_W - 10, HEIGHT - 20
+    px = 5
+    py = 10
     sim.info_panel_rect = pygame.Rect(px, py, pw, ph)
-
-    overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-    overlay.fill((0, 0, 0, 120))
-    surf.blit(overlay, (0, 0))
 
     panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
     pygame.draw.rect(panel, (30, 30, 45, 240), (0, 0, pw, ph), border_radius=12)
@@ -1299,18 +2031,32 @@ def draw_info_panel(surf):
     info = sim.info_panel
     y = 15
 
-    title = FONT_XL.render(info.get("name", ""), True, ACCENT)
-    panel.blit(title, (15, y)); y += 35
+    # Title - wrap if it clips the panel width
+    title_text = info.get("name", "")
+    title_lines = wrap_text(title_text, FONT_XL, pw - 30)
+    for line in title_lines:
+        title_surf = FONT_XL.render(line, True, ACCENT)
+        panel.blit(title_surf, (15, y))
+        y += 32
 
-    cat = FONT_MD.render(info.get("category", ""), True, LABEL_DIM)
-    panel.blit(cat, (15, y)); y += 25
+    y += 3
 
-    target_txt = FONT_MD.render(f"Target: {info.get('target', 'N/A')}", True, TEXT_COLOR)
-    panel.blit(target_txt, (15, y)); y += 25
 
+    # Target - bold, larger font, full name
+    target_display = {
+        "CI": "Complex I", "CII": "Complex II", "CIII": "Complex III",
+        "CIV": "Complex IV", "CV": "Complex V", "membrane": "Membrane",
+        "ANT": "Adenine Nucleotide Translocase",
+    }
+    target_val = target_display.get(info.get('target', ''), info.get('target', 'N/A'))
+    target_label = FONT_TARGET.render(f"Target: {target_val}", True, (255, 255, 255))
+    panel.blit(target_label, (15, y)); y += 30
+
+    # ATP Reduction - larger, bold, bright red
     if "atp_reduction_pct" in info:
-        atp_txt = FONT_MD.render(f"ATP Reduction: ~{info['atp_reduction_pct']}%", True, (239, 83, 80))
-        panel.blit(atp_txt, (15, y)); y += 25
+        pct = info['atp_reduction_pct']
+        atp_txt = FONT_ATP_RED.render(f"ATP Reduction: ~{pct}%", True, (255, 50, 50))
+        panel.blit(atp_txt, (15, y)); y += 30
 
     pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 10
 
@@ -1320,15 +2066,55 @@ def draw_info_panel(surf):
         panel.blit(FONT_SM.render(line, True, TEXT_COLOR), (15, y)); y += 18
 
     y += 5
-    if "clinical_notes" in info and y < ph - 50:
+    sim.ref_link_rect = None
+    if "reference_url" in info and y < ph - 50:
         pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 8
-        panel.blit(FONT_TITLE.render("Clinical Notes:", True, (100, 200, 255)), (15, y)); y += 20
-        for line in wrap_text(info["clinical_notes"], FONT_SM, pw - 30):
-            if y > ph - 25:
-                break
-            panel.blit(FONT_SM.render(line, True, (180, 200, 220)), (15, y)); y += 17
+        panel.blit(FONT_TITLE.render("Reference:", True, (100, 200, 255)), (15, y)); y += 20
 
-    close_txt = FONT_SM.render("Click anywhere outside to close  |  ESC", True, LABEL_DIM)
+        # Clickable link - underlined, blue, with hover cursor hint
+        link_txt = FONT_SM.render(info["reference_url"], True, (80, 180, 255))
+        link_lines = wrap_text(info["reference_url"], FONT_SM, pw - 30)
+        link_y_start = y
+        for line in link_lines:
+            if y > ph - 40:
+                break
+            ltxt = FONT_SM.render(line, True, (80, 180, 255))
+            panel.blit(ltxt, (15, y))
+            # Underline
+            pygame.draw.line(panel, (80, 180, 255), (15, y + ltxt.get_height()),
+                             (15 + ltxt.get_width(), y + ltxt.get_height()), 1)
+            y += 17
+
+        # Store the clickable area in screen coordinates (panel is at px, py)
+        link_h = y - link_y_start
+        sim.ref_link_rect = pygame.Rect(px + 15, py + link_y_start, pw - 30, link_h)
+        sim.ref_link_url = info["reference_url"]
+
+        y += 4
+        click_hint = FONT_TINY.render("Click link to open in browser", True, (120, 160, 200))
+        panel.blit(click_hint, (15, y)); y += 15
+
+    # Overview section
+    if "overview" in info and y < ph - 60:
+        y += 3
+        pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 8
+        panel.blit(FONT_TITLE.render("Overview:", True, (180, 220, 130)), (15, y)); y += 20
+        for line in wrap_text(info["overview"], FONT_SM, pw - 30):
+            if y > ph - 30:
+                break
+            panel.blit(FONT_SM.render(line, True, (200, 220, 180)), (15, y)); y += 17
+
+    # Carcinogenicity section (only shown if data exists)
+    if "carcinogenicity" in info and y < ph - 50:
+        y += 3
+        pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 8
+        panel.blit(FONT_TITLE.render("Carcinogenicity:", True, (255, 160, 80)), (15, y)); y += 20
+        for line in wrap_text(info["carcinogenicity"], FONT_SM, pw - 30):
+            if y > ph - 30:
+                break
+            panel.blit(FONT_SM.render(line, True, (230, 190, 150)), (15, y)); y += 17
+
+    close_txt = FONT_SM.render("Click outside or press ESC to close", True, LABEL_DIM)
     panel.blit(close_txt, (pw // 2 - close_txt.get_width() // 2, ph - 22))
     surf.blit(panel, (px, py))
 
@@ -1337,38 +2123,72 @@ def draw_info_panel(surf):
 # HUD
 # ---------------------------------------------------------------------------
 def draw_hud(surf):
-    hud_rect = pygame.Rect(WIDTH - 230, 10, 220, 90)
-    draw_rounded_rect(surf, (0, 0, 0), hud_rect, 8, alpha=180)
-
-    surf.blit(FONT_LG.render(f"ATP: {sim.atp_count}", True, ATP_COLOR), (WIDTH - 220, 15))
-    surf.blit(FONT_SM.render(f"Rate: {sim.atp_rate:.1f} ATP/s", True, LABEL_DIM), (WIDTH - 220, 38))
-    surf.blit(FONT_SM.render(f"H\u207a in IMS: {sim.gradient_display}", True, PROTON_COLOR), (WIDTH - 220, 55))
-    surf.blit(FONT_SM.render(f"H\u207a in Matrix: {len(sim.matrix_protons)}", True, (100, 200, 220)), (WIDTH - 220, 70))
-
+    # Active effects (top right, no box)
     if sim.active_chemicals:
-        acy = 110
+        acy = 15
         surf.blit(FONT_TITLE.render("Active Effects:", True, (255, 150, 150)), (WIDTH - 220, acy))
         acy += 20
         for chem in sim.active_chemicals:
             surf.blit(FONT_SM.render(f"\u2022 {chem['name']}", True, (255, 180, 180)), (WIDTH - 215, acy))
             acy += 17
 
-    # Legend
-    leg_y = HEIGHT - 90
-    leg_x = WIDTH - 210
-    draw_rounded_rect(surf, (0, 0, 0), (leg_x - 10, leg_y - 5, 210, 85), 6, alpha=150)
+    # Title - centered at top of simulation area
+    title_txt = FONT_XL.render("Mitochondrial Electron Transport Chain Simulation", True, (200, 200, 200))
+    title_x = SIM_X + (SIM_W - title_txt.get_width()) // 2
+    surf.blit(title_txt, (title_x, 8))
 
+    # Legend (reflects the current station-based sim)
+    leg_y = HEIGHT - 130
+    leg_x = WIDTH - 220
+    draw_rounded_rect(surf, (0, 0, 0), (leg_x - 10, leg_y - 5, 220, 125), 6, alpha=160)
+
+    # Proton
     pygame.draw.circle(surf, PROTON_COLOR, (leg_x, leg_y + 8), 4)
-    surf.blit(FONT_SM.render("Proton (H\u207a)", True, TEXT_COLOR), (leg_x + 12, leg_y))
+    surf.blit(FONT_SM.render("Proton (H\u207a)", True, TEXT_COLOR), (leg_x + 14, leg_y))
 
-    draw_coq(surf, leg_x, leg_y + 28, label=False)
-    surf.blit(FONT_SM.render("Ubiquinone (CoQ) + e\u207b", True, TEXT_COLOR), (leg_x + 14, leg_y + 20))
+    # Electron (the glowing yellow traveling dot)
+    _draw_electron_payload(surf, leg_x, leg_y + 28)
+    surf.blit(FONT_SM.render("Electron (e\u207b)", True, TEXT_COLOR), (leg_x + 14, leg_y + 21))
 
-    draw_cytc(surf, leg_x, leg_y + 48, label=False)
-    surf.blit(FONT_SM.render("Cytochrome c + e\u207b", True, TEXT_COLOR), (leg_x + 14, leg_y + 40))
+    # CoQ station sample
+    coq_rect = pygame.Rect(leg_x - 14, leg_y + 44, 28, 14)
+    pygame.draw.rect(surf, (55, 35, 18), coq_rect, border_radius=7)
+    pygame.draw.rect(surf, COQ_ORANGE, coq_rect, 1, border_radius=7)
+    coq_lbl = FONT_TINY.render("CoQ", True, (255, 200, 120))
+    surf.blit(coq_lbl, (leg_x - coq_lbl.get_width() // 2, leg_y + 45))
+    surf.blit(FONT_SM.render("Ubiquinone (CoQ)", True, TEXT_COLOR), (leg_x + 14, leg_y + 43))
 
-    surf.blit(FONT_SM.render("ATP", True, ATP_COLOR), (leg_x - 2, leg_y + 58))
-    surf.blit(FONT_SM.render("= synthesized ATP", True, TEXT_COLOR), (leg_x + 28, leg_y + 58))
+    # CytC station sample
+    cytc_rect = pygame.Rect(leg_x - 14, leg_y + 66, 28, 14)
+    pygame.draw.rect(surf, (22, 30, 55), cytc_rect, border_radius=7)
+    pygame.draw.rect(surf, CYTC_BLUE_LIGHT, cytc_rect, 1, border_radius=7)
+    cc_lbl = FONT_TINY.render("Cyt c", True, (160, 190, 235))
+    surf.blit(cc_lbl, (leg_x - cc_lbl.get_width() // 2, leg_y + 67))
+    surf.blit(FONT_SM.render("Cytochrome c", True, TEXT_COLOR), (leg_x + 14, leg_y + 65))
+
+    # ATP
+    surf.blit(FONT_SM.render("ATP", True, ATP_COLOR), (leg_x - 10, leg_y + 85))
+    surf.blit(FONT_SM.render("= synthesized ATP", True, TEXT_COLOR), (leg_x + 20, leg_y + 85))
+
+    # Water
+    water_surf = pygame.Surface((14, 14), pygame.SRCALPHA)
+    pygame.draw.circle(water_surf, (80, 160, 255), (7, 7), 5)
+    pygame.draw.polygon(water_surf, (80, 160, 255), [(7, 0), (3, 5), (11, 5)])
+    surf.blit(water_surf, (leg_x - 7, leg_y + 100))
+    surf.blit(FONT_SM.render("Water (H\u2082O) from CIV", True, TEXT_COLOR), (leg_x + 14, leg_y + 105))
+
+    # Bottom disclaimer
+    disclaimer_lines = [
+        "This simulation is for educational purposes only and is a simplified model of mitochondrial function.",
+        "It does not represent the full complexity of biological systems or predict real-world physiological responses.",
+        "Information presented should not be used for medical, clinical, or toxicological decision-making.",
+        "The creators assume no liability for any use or interpretation of this content.  @womenadrift.com",
+    ]
+    bot_y = HEIGHT - len(disclaimer_lines) * 13 - 4
+    for line in disclaimer_lines:
+        dtxt = FONT_TINY.render(line, True, (90, 90, 90))
+        surf.blit(dtxt, (SIM_X + (SIM_W - dtxt.get_width()) // 2, bot_y))
+        bot_y += 13
 
 
 # ---------------------------------------------------------------------------
@@ -1473,6 +2293,10 @@ def main():
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:
                     if sim.info_panel and sim.info_panel_rect:
+                        # Check if clicking the reference link
+                        if sim.ref_link_rect and sim.ref_link_rect.collidepoint(mx, my):
+                            webbrowser.open(sim.ref_link_url)
+                            continue
                         if not sim.info_panel_rect.collidepoint(mx, my):
                             sim.info_panel = None
                             continue
@@ -1494,8 +2318,8 @@ def main():
                             if chem["id"] in [c["id"] for c in sim.active_chemicals]:
                                 sim.remove_chemical(chem["id"])
                             else:
-                                sim.dragging_chem = chem
-                                sim.drag_pos = (mx, my)
+                                sim.apply_chemical(chem)
+                                sim.info_panel = chem
                     elif mx > SIDEBAR_W:
                         comp = get_complex_at(mx, my)
                         if comp:
@@ -1511,19 +2335,15 @@ def main():
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
                     dragging_slider = False
-                    if sim.dragging_chem:
-                        if mx > SIDEBAR_W:
-                            sim.apply_chemical(sim.dragging_chem)
-                            sim.info_panel = sim.dragging_chem
-                        sim.dragging_chem = None
 
             elif event.type == pygame.MOUSEMOTION:
                 if dragging_slider and "slider" in ui:
                     sr = ui["slider"]
                     rel = (mx - sr.x) / sr.w
-                    sim.flux = max(0.5, min(3.0, 0.5 + rel * 2.5))
-                if sim.dragging_chem:
-                    sim.drag_pos = (mx, my)
+                    # Slider range 0 to 2; internal clamp at 0.05 minimum so
+                    # interval divisions in sim_update stay finite (at 0.05 the
+                    # chain is effectively frozen without zero-division errors).
+                    sim.flux = max(0.05, min(2.0, rel * 2.0))
 
         # Right-click for info
         buttons = pygame.mouse.get_pressed()
