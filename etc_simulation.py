@@ -546,22 +546,52 @@ class InfluxProton:
         surf.blit(txt, (ax + 7, ay - 6))
 
 
+UNCOUPLER_PORE_COUNT = 6
+
+
+def _uncoupler_pore_xs():
+    """Centers of the 6 visible uncoupler pore rectangles. Must match the
+       drawing code in the main render loop."""
+    return [SIM_X + 60 + i * (SIM_W - 120) // UNCOUPLER_PORE_COUNT + 12
+            for i in range(UNCOUPLER_PORE_COUNT)]
+
+
 class LeakProton:
-    """Proton leaking through membrane due to uncoupler (no ATP made)."""
-    def __init__(self):
-        self.x = random.randint(SIM_X + 60, WIDTH - 60)
-        self.y = IMS_BOTTOM
-        self.target_y = MATRIX_TOP + 20
-        self.speed = 2.0 + random.random()
+    """Proton shuttling through a protonophore pore in the membrane.
+       Protonophores are bidirectional — individual H+ cross in both
+       directions through every pore. Net flux is set by the pool ratio
+       (more traffic down when IMS>matrix, more up when matrix>IMS,
+       zero net at equilibrium), but visually both directions are always
+       visible so students see the shuttle mechanism rather than a
+       one-way valve."""
+    def __init__(self, direction="down"):
+        pores = _uncoupler_pore_xs()
+        self.x = random.choice(pores) + random.uniform(-3, 3)
+        self.direction = direction
+        if direction == "down":
+            self.y = MEMBRANE_Y - MEMBRANE_H // 2 - 4
+            self.target_y = MATRIX_TOP + 20
+        else:  # "up"
+            self.y = MATRIX_TOP + 20
+            self.target_y = MEMBRANE_Y - MEMBRANE_H // 2 - 4
+        self.speed = 1.6 + random.random() * 0.6
         self.done = False
 
     def update(self, speed):
-        self.y += self.speed * speed
-        if self.y >= self.target_y:
-            self.done = True
+        if self.direction == "down":
+            self.y += self.speed * speed
+            if self.y >= self.target_y:
+                self.done = True
+        else:
+            self.y -= self.speed * speed
+            if self.y <= self.target_y:
+                self.done = True
 
     def draw(self, surf):
-        pygame.draw.circle(surf, (255, 152, 0), (int(self.x), int(self.y)), 3)
+        # Uncoupler-leak protons are still H+ — render them at the same
+        # size and color as every other proton in the sim so students
+        # don't read them as a different particle species.
+        pygame.draw.circle(surf, PROTON_COLOR, (int(self.x), int(self.y)), 4)
 
 
 MATRIX_PROTON_CAP = 55  # hard cap — never exceed this even after full equilibration
@@ -2037,18 +2067,48 @@ def sim_update():
     sim.atp_rate = sum(sim.atp_history)
 
     # --- Uncoupler leak: protons leak from IMS through membrane (no ATP) ---
-    if sim.uncoupled and len(sim.ims_protons) > 0 and f % max(1, int(8 / flux)) == 0:
-        # Remove a random IMS proton and create a leak visual
-        idx = random.randint(0, len(sim.ims_protons) - 1)
-        sim.ims_protons.pop(idx)
-        sim.leak_protons.append(LeakProton())
+    # Rate has to comfortably exceed ETC pumping (CI+CIII+CIV combined ~10
+    # H+/s at default flux) so that the IMS pool visibly drains and the
+    # CV gradient collapses — otherwise the leak just matches pumping and
+    # ATP output looks unchanged. Scales with uncoupler_strength so a
+    # second applied uncoupler accelerates the drop further.
+    if sim.uncoupled:
+        # Protonophores (DNP/FCCP/CCCP) shuttle H+ BOTH ways through the
+        # membrane. At every leak tick, a proton is chosen from either
+        # pool weighted by pool size — so when IMS>matrix there is more
+        # downward traffic than upward (net IMS→matrix), at equilibrium
+        # both directions are equal (zero net flux, still visibly
+        # shuttling). Mirrors real protonophore thermodynamics.
+        strength = max(0.1, sim.uncoupler_strength)
+        leak_interval = max(1, int(2 / (flux * strength)))
+        if f % leak_interval == 0:
+            ims_n = len(sim.ims_protons)
+            mat_n = len(sim.matrix_protons)
+            total = ims_n + mat_n
+            if total > 0:
+                p_down = ims_n / total
+                if random.random() < p_down and ims_n > 0:
+                    idx = random.randint(0, ims_n - 1)
+                    sim.ims_protons.pop(idx)
+                    sim.leak_protons.append(LeakProton(direction="down"))
+                elif mat_n > 0:
+                    idx = random.randint(0, mat_n - 1)
+                    sim.matrix_protons.pop(idx)
+                    sim.leak_protons.append(LeakProton(direction="up"))
 
     for p in sim.leak_protons:
         p.update(flux)
-        if p.done and len(sim.matrix_protons) < MATRIX_PROTON_CAP:
-            sim.matrix_protons.append(MatrixProton(
-                random.randint(SIM_X + 40, WIDTH - 40),
-                random.randint(MATRIX_TOP + 20, HEIGHT - 30)))
+        if p.done:
+            if p.direction == "down":
+                if len(sim.matrix_protons) < MATRIX_PROTON_CAP:
+                    sim.matrix_protons.append(MatrixProton(
+                        random.randint(SIM_X + 40, WIDTH - 40),
+                        random.randint(MATRIX_TOP + 20, HEIGHT - 30)))
+            else:  # upward — rejoins the IMS pool
+                if len(sim.ims_protons) < IMS_PROTON_CAP:
+                    sim.ims_protons.append(IMSProton(
+                        random.randint(SIM_X + 40, WIDTH - 40),
+                        random.randint(25, IMS_BOTTOM - 20)))
     sim.leak_protons = [p for p in sim.leak_protons if not p.done]
 
     # --- ROS ---
@@ -2356,16 +2416,6 @@ def draw_all(mx, my):
         utxt = FONT_SM.render("UNCOUPLED \u2014 H\u207a leaking through membrane!", True, (255, 152, 0))
         screen.blit(utxt, (SIM_X + SIM_W // 2 - utxt.get_width() // 2, MATRIX_TOP + 30))
 
-    # --- Subtle flow indicator near CV ---
-    # Just a small downward arrow above CV showing where protons enter
-    if sim.gradient_display > 5 and not (sim.blocked["CV"] or sim.transport_blocked):
-        arr_surf = pygame.Surface((30, 20), pygame.SRCALPHA)
-        pygame.draw.polygon(arr_surf, (0, 200, 240, 80),
-                            [(15, 20), (3, 6), (27, 6)])
-        screen.blit(arr_surf, (CX["CV"] - 15, IMS_BOTTOM - 25))
-        txt = FONT_TINY.render("H\u207a flow", True, (0, 200, 240))
-        txt.set_alpha(100)
-        screen.blit(txt, (CX["CV"] - txt.get_width() // 2, IMS_BOTTOM - 40))
 
     # --- Draw all protons ---
     # Matrix protons (source pool for pumping)
@@ -2416,15 +2466,6 @@ def draw_all(mx, my):
     for h in sim.electron_hops:
         h.draw(screen)
 
-    # Gradient indicator text in IMS
-    if sim.gradient_display > 0:
-        g_txt = FONT_SM.render(f"H\u207a gradient: {sim.gradient_display} protons in IMS", True, PROTON_COLOR)
-        screen.blit(g_txt, (WIDTH - g_txt.get_width() - 20, IMS_BOTTOM - 30))
-
-    # Matrix proton pool label
-    if len(sim.matrix_protons) > 0:
-        m_txt = FONT_SM.render(f"Matrix H\u207a pool: {len(sim.matrix_protons)} (source for pumping)", True, (100, 200, 220))
-        screen.blit(m_txt, (SIM_X + 20, MATRIX_TOP + 15))
 
     # Sidebar
     ui = draw_sidebar(screen, mx, my)
@@ -2656,34 +2697,43 @@ def draw_info_panel(surf):
     info = sim.info_panel
     y = 15
 
-    # Title - wrap if it clips the panel width
+    # Title - auto-shrink the title font when a single unbreakable word
+    # (e.g. "Thenoyltrifluoroacetone") still overflows the panel width
+    # after word-wrapping. Try the default size first, then step down.
     title_text = info.get("name", "")
-    title_lines = wrap_text(title_text, FONT_XL, pw - 30)
+    max_w = pw - 30
+    title_font = FONT_XL
+    title_lines = wrap_text(title_text, title_font, max_w)
+    for size in (26, 22, 19, 16):
+        if all(title_font.size(line)[0] <= max_w for line in title_lines):
+            break
+        title_font = pygame.font.SysFont("Segoe UI", size, bold=True)
+        title_lines = wrap_text(title_text, title_font, max_w)
+    line_h = title_font.get_height() + 2
     for line in title_lines:
-        title_surf = FONT_XL.render(line, True, ACCENT)
+        title_surf = title_font.render(line, True, ACCENT)
         panel.blit(title_surf, (15, y))
-        y += 32
+        y += line_h
 
     y += 3
 
 
-    # Target - bold, larger font, full name
-    target_display = {
-        "CI": "Complex I", "CII": "Complex II", "CIII": "Complex III",
-        "CIV": "Complex IV", "CV": "Complex V", "membrane": "Membrane",
-        "ANT": "Adenine Nucleotide Translocase",
-    }
-    target_val = target_display.get(info.get('target', ''), info.get('target', 'N/A'))
-    target_label = FONT_TARGET.render(f"Target: {target_val}", True, (255, 255, 255))
-    panel.blit(target_label, (15, y)); y += 30
+    # Target - bold, larger font. Severity qualifier on a second smaller
+    # line underneath so long qualifiers never overflow the card.
+    target_main, target_qualifier = target_label(info)
+    target_surf = FONT_TARGET.render(target_main, True, (255, 255, 255))
+    panel.blit(target_surf, (15, y)); y += 26
+    if target_qualifier:
+        qual_surf = FONT_SM.render(target_qualifier, True, (210, 210, 230))
+        panel.blit(qual_surf, (15, y)); y += 20
 
-    # Block-type label (replaces the old ATP-reduction percentage). Derived
-    # from the chemical's `effect` field so students see WHAT KIND of
-    # disruption the toxin causes, not a percentage that hid the all-or-
-    # nothing nature of a full block.
-    effect_label = EFFECT_LABEL.get(info.get("effect", ""), None)
-    if effect_label:
-        block_txt = FONT_ATP_RED.render(effect_label, True, (255, 50, 50))
+    # Block-type label derived from (effect, target). Only CIII/CIV/CV
+    # blockers read as "Complete ETC block"; CI/CII blockers read as
+    # "Partial ETC block" because the other NADH/FADH2 entry point
+    # still feeds CoQ.
+    label = effect_label(info)
+    if label:
+        block_txt = FONT_ATP_RED.render(label, True, (255, 50, 50))
         panel.blit(block_txt, (15, y)); y += 30
 
     pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 10
@@ -2862,13 +2912,61 @@ def draw_help_panel(surf):
 # ---------------------------------------------------------------------------
 # HUD
 # ---------------------------------------------------------------------------
-EFFECT_LABEL = {
-    "block": "Complete ETC block",
-    "partial_block": "Partial ETC block",
-    "uncouple": "Uncoupler (gradient leak)",
-    "ros_generation": "ROS generation (e\u207b diversion)",
-    "transport_block": "ATP / ADP transport block",
-}
+def effect_label(chem):
+    """Plain-language top-level block label for the Active Effects panel
+       and info card. Derived from (effect, target) so that:
+         - Only toxins which truly halt the whole chain read as
+           'Complete ETC block' (CIII, CIV, CV blockers).
+         - CI and CII blockers read as 'Partial ETC block' because the
+           other NADH/FADH2 entry point still feeds CoQ.
+         - Partial CI inhibitors (metformin) and ROS generators
+           (doxorubicin) also read as 'Partial ETC block'.
+         - Uncouplers and transport blockers keep their own categories."""
+    effect = chem.get("effect", "")
+    target = chem.get("target", "")
+    if effect == "block":
+        if target in ("CIII", "CIV", "CV"):
+            return "Complete ETC block"
+        return "Partial ETC block"
+    if effect == "partial_block":
+        return "Partial ETC block"
+    if effect == "ros_generation":
+        return "Partial ETC block"
+    if effect == "uncouple":
+        return "Uncoupler (gradient leak)"
+    if effect == "transport_block":
+        return "ATP / ADP transport block"
+    return "Effect"
+
+
+def target_label(chem):
+    """Info-card target lines. Returns (main, qualifier) where `main` is
+       the large 'Target: <Complex>' line and `qualifier` is the smaller
+       severity line rendered underneath ('complete block', 'partial
+       block', 'ROS + block', etc.). Split into two lines so the main
+       target stays large and readable even for long qualifiers."""
+    target_display = {
+        "CI": "Complex I", "CII": "Complex II", "CIII": "Complex III",
+        "CIV": "Complex IV", "CV": "Complex V", "membrane": "Membrane",
+        "ANT": "Adenine Nucleotide Translocase",
+    }
+    target = chem.get("target", "")
+    target_name = target_display.get(target, target or "N/A")
+    effect = chem.get("effect", "")
+    main = f"Target: {target_name}"
+    if effect == "block":
+        qualifier = "complete block"
+    elif effect == "partial_block":
+        qualifier = "partial block"
+    elif effect == "ros_generation":
+        qualifier = "ROS + block"
+    elif effect == "uncouple":
+        qualifier = "proton leak"
+    elif effect == "transport_block":
+        qualifier = "transport block"
+    else:
+        qualifier = ""
+    return main, qualifier
 
 # INTERNAL DESIGN TARGET (not shown to students): every effect should
 # reach its on-screen steady state within ~30 simulation seconds of
@@ -2907,8 +3005,7 @@ def draw_hud(surf):
             (panel_x + 8, panel_y + 4))
         acy = panel_y + 28
         for chem in sim.active_chemicals:
-            effect = chem.get("effect", "")
-            label = EFFECT_LABEL.get(effect, "Effect")
+            label = effect_label(chem)
             name_txt = FONT_TITLE.render(
                 f"\u2022 {chem['name']}", True, (255, 200, 200))
             surf.blit(name_txt, (panel_x + 8, acy))
