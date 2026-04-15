@@ -77,7 +77,7 @@ FONT_MD = pygame.font.SysFont("Segoe UI", 16)
 FONT_LG = pygame.font.SysFont("Segoe UI", 20, bold=True)
 FONT_XL = pygame.font.SysFont("Segoe UI", 26, bold=True)
 FONT_TARGET = pygame.font.SysFont("Segoe UI", 22, bold=True)
-FONT_ATP_RED = pygame.font.SysFont("Segoe UI", 22, bold=True)
+FONT_ATP_RED = pygame.font.SysFont("Segoe UI", 18, bold=True)
 FONT_TITLE = pygame.font.SysFont("Segoe UI", 14, bold=True)
 FONT_TINY = pygame.font.SysFont("Segoe UI", 11)
 
@@ -160,21 +160,39 @@ CX = {
     "CV":   SIM_X + 790,
 }
 
-# Stationary CoQ and CytC station positions — visible labeled waypoints that
-# electrons hop through, matching textbook ETC diagrams. Biologically these
-# carriers are mobile pools, but the station-style simplification makes the
-# electron flow pathway obvious for students. Stations sit INSIDE the upper
-# portion of the membrane so electron hops travel within the lipid bilayer
-# rather than arcing up into the IMS.
-COQ_STATION_X = (CX["CII"] + CX["CIII"]) // 2 + 15
-COQ_STATION_Y = IMS_BOTTOM + 10
-CYTC_STATION_X = (CX["CIII"] + CX["CIV"]) // 2
-CYTC_STATION_Y = IMS_BOTTOM + 10
+# CoQ (ubiquinone) is a mobile lipid-pool carrier. Molecules diffuse laterally
+# within the upper leaflet of the inner mitochondrial membrane, colliding
+# stochastically with CI/CII to pick up 2 e- (becoming ubiquinol, QH2) and with
+# CIII to deliver them. We represent it as a pool of ~8 molecules that drift
+# inside this band, biased toward CI/CII when empty and toward CIII when loaded.
+COQ_BAND_LEFT = CX["CI"] + 55
+COQ_BAND_RIGHT = CX["CIII"] - 45
+COQ_BAND_TOP = IMS_BOTTOM + 8
+COQ_BAND_BOTTOM = MEMBRANE_Y - 2
+COQ_POOL_SIZE = 8
+COQ_DROPOFF_X = CX["CIII"] - 45   # loaded CoQ within this x can offload to CIII
 
-# Max protons that accumulate visibly in IMS before we stop adding more.
-# Tuned so that when pumping halts (e.g., cyanide cascade), the pool drains
-# in roughly 25 seconds at default flux — classroom-friendly demo timing.
-IMS_PROTON_CAP = 50
+# Cyt c (cytochrome c) is a small water-soluble heme protein (~12 kDa) loosely
+# bound to the outer face of the inner membrane and diffusing in the IMS. It
+# carries a SINGLE electron at a time via its Fe heme (Fe³⁺↔Fe²⁺). Four cyt c
+# deliveries are needed to reduce one O2 to two H2O at CIV. Diffusion is faster
+# than CoQ (aqueous vs lipid) — bumped drift + jitter for this pool.
+CYTC_BAND_LEFT = CX["CIII"] - 10
+CYTC_BAND_RIGHT = CX["CIV"] + 15
+CYTC_BAND_TOP = IMS_BOTTOM - 34
+CYTC_BAND_BOTTOM = IMS_BOTTOM - 6
+CYTC_POOL_SIZE = 6
+CYTC_DROPOFF_X = CX["CIV"] - 30   # loaded cyt c within this x can offload to CIV
+
+# Proton pool caps. Biologically the matrix is slightly ALKALINE relative
+# to the IMS when the ETC is running (matrix ~pH 8.0, IMS ~pH 7.25), so
+# the IMS has a higher [H+] than the matrix. The visual caps reflect that:
+# the IMS pool should appear denser than the matrix pool at steady state.
+# When the ETC stops, passive leak (below) equilibrates the two toward a
+# middle density, never inverting the gradient.
+IMS_PROTON_CAP = 60
+MATRIX_PROTON_BASELINE = 18   # resting matrix density when ETC running
+MATRIX_PROTON_EQUILIBRIUM = 50  # upper limit after full collapse
 
 # ---------------------------------------------------------------------------
 # Drawing helpers
@@ -370,40 +388,6 @@ def draw_cytc(surf, x, y, label=True):
         surf.blit(txt, (int(x) - txt.get_width() // 2, int(y) - 20))
 
 
-def draw_coq_station(surf, pulse=0):
-    """Stationary CoQ pool marker sitting on the membrane between CII and CIII."""
-    cx, cy = COQ_STATION_X, COQ_STATION_Y
-    w, h = 50, 24
-    if pulse > 0:
-        glow = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
-        alpha = int(min(180, pulse * 14))
-        pygame.draw.rect(glow, (255, 180, 50, alpha),
-                         (12, 12, w, h), border_radius=12)
-        surf.blit(glow, (cx - (w + 24) // 2, cy - (h + 24) // 2))
-    rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
-    pygame.draw.rect(surf, (55, 35, 18), rect, border_radius=12)
-    pygame.draw.rect(surf, COQ_ORANGE, rect, 2, border_radius=12)
-    txt = FONT_SM.render("CoQ", True, (255, 200, 120))
-    surf.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
-
-
-def draw_cytc_station(surf, pulse=0):
-    """Stationary cytochrome c pool marker between CIII and CIV."""
-    cx, cy = CYTC_STATION_X, CYTC_STATION_Y
-    w, h = 54, 24
-    if pulse > 0:
-        glow = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
-        alpha = int(min(180, pulse * 14))
-        pygame.draw.rect(glow, (100, 160, 230, alpha),
-                         (12, 12, w, h), border_radius=12)
-        surf.blit(glow, (cx - (w + 24) // 2, cy - (h + 24) // 2))
-    rect = pygame.Rect(cx - w // 2, cy - h // 2, w, h)
-    pygame.draw.rect(surf, (22, 30, 55), rect, border_radius=12)
-    pygame.draw.rect(surf, CYTC_BLUE_LIGHT, rect, 2, border_radius=12)
-    txt = FONT_SM.render("Cyt c", True, (160, 190, 235))
-    surf.blit(txt, (cx - txt.get_width() // 2, cy - txt.get_height() // 2))
-
-
 # ---------------------------------------------------------------------------
 # Membrane drawing
 # ---------------------------------------------------------------------------
@@ -470,11 +454,15 @@ class IMSProton:
         self.vx += random.uniform(-0.22, 0.22)
         self.vy += random.uniform(-0.22, 0.22)
 
-        # Very weak bias toward CV — a gentle long-term tendency, not
-        # a conveyor belt. Kept far below the Brownian jitter.
-        dx_to_cv = CX["CV"] - self.x
-        if abs(dx_to_cv) > 4:
-            self.vx += 0.006 * (1 if dx_to_cv > 0 else -1)
+        # Very weak bias toward CV while the ETC is actively pumping — a
+        # gentle long-term tendency that produces the textbook "cluster
+        # above ATP synthase" visual. Once the gradient collapses (e.g.,
+        # under cyanide), the bias is removed so remaining IMS H+ disperse
+        # randomly and equilibrate across the full intermembrane space.
+        if sim.cv_gradient_strength > 0.15:
+            dx_to_cv = CX["CV"] - self.x
+            if abs(dx_to_cv) > 4:
+                self.vx += 0.006 * (1 if dx_to_cv > 0 else -1)
 
         # Looser damping + higher clamp so the random walk can actually
         # spread protons around the IMS instead of pinning them in place.
@@ -576,7 +564,7 @@ class LeakProton:
         pygame.draw.circle(surf, (255, 152, 0), (int(self.x), int(self.y)), 3)
 
 
-MATRIX_PROTON_CAP = 120
+MATRIX_PROTON_CAP = 55  # hard cap — never exceed this even after full equilibration
 
 class MatrixProton:
     """A proton in the matrix. Drifts around, consumed when complexes pump H+ out."""
@@ -599,16 +587,17 @@ class MatrixProton:
             self.y = MATRIX_TOP + 10; self.vy = abs(self.vy)
         if self.y > HEIGHT - 15:
             self.y = HEIGHT - 15; self.vy = -abs(self.vy)
-        # Brownian drift
-        self.vx += random.uniform(-0.05, 0.05)
-        self.vy += random.uniform(-0.05, 0.05)
-        self.vx *= 0.97
-        self.vy *= 0.97
-        self.vx = max(-0.5, min(0.5, self.vx))
-        self.vy = max(-0.5, min(0.5, self.vy))
+        # Brownian jitter — matches IMSProton so matrix H+ disperse evenly
+        # instead of clustering wherever they spawned.
+        self.vx += random.uniform(-0.22, 0.22)
+        self.vy += random.uniform(-0.22, 0.22)
+        self.vx *= 0.90
+        self.vy *= 0.90
+        self.vx = max(-1.2, min(1.2, self.vx))
+        self.vy = max(-1.2, min(1.2, self.vy))
 
     def draw(self, surf):
-        pygame.draw.circle(surf, PROTON_COLOR, (int(self.x), int(self.y)), 3)
+        pygame.draw.circle(surf, PROTON_COLOR, (int(self.x), int(self.y)), 4)
 
 
 class WaterParticle:
@@ -978,23 +967,27 @@ class ElectronHandoff:
 
 class ElectronDescent:
     """Electron descending through CIV from the CytC docking site down to the
-       matrix side, where it combines with O2 + 2 H+ to form H2O."""
-    def __init__(self, cx, y_start, y_end, duration=28):
+       matrix side. Real stoichiometry: 2 e- + 2 H+ + 1/2 O2 → H2O, so water
+       is only spawned on every SECOND electron's descent (caller passes
+       spawn_water=True for the 2nd and 4th of each 4-electron cycle)."""
+    def __init__(self, cx, y_start, y_end, duration=28, spawn_water=True):
         self.x = cx
         self.y_start = y_start
         self.y_end = y_end
         self.duration = duration
         self.age = 0
         self.spawned_water = False
+        self.should_spawn_water = spawn_water
 
     def update(self):
         self.age += 1
         if self.age >= self.duration and not self.spawned_water:
-            # Electron arrives at O2 acceptor - trigger reaction pulse and
-            # spawn the resulting water droplet from the O2 position.
-            sim.oxygen_acceptor.trigger()
-            sim.water_particles.append(WaterParticle(self.x, self.y_end + 12))
             self.spawned_water = True
+            if self.should_spawn_water:
+                # A full electron pair has arrived: trigger O2 reaction
+                # pulse and spawn the resulting water droplet.
+                sim.oxygen_acceptor.trigger()
+                sim.water_particles.append(WaterParticle(self.x, self.y_end + 12))
 
     @property
     def done(self):
@@ -1030,7 +1023,8 @@ class ElectronHop:
        see the electron REACH the station or complex before the next hop
        takes over. Without the linger, the last drawn frame is 1-2 pixels
        short of the destination, which reads visually as 'fading out'."""
-    def __init__(self, phase, sx, sy, ex, ey, duration=22, control_offset=35):
+    def __init__(self, phase, sx, sy, ex, ey, duration=22, control_offset=35,
+                 target_obj=None):
         self.phase = phase
         self.sx, self.sy = sx, sy
         self.ex, self.ey = ex, ey
@@ -1038,11 +1032,21 @@ class ElectronHop:
         self.linger = 18  # frames to hold at endpoint before disappearing
         self.age = 0.0
         self.dispatched = False
+        self.control_offset = control_offset
+        # target_obj: optional live object with .x/.y attributes. When set, the
+        # hop tracks the moving target each frame (used for electrons chasing a
+        # diffusing CoQ molecule).
+        self.target_obj = target_obj
         # Quadratic Bezier control point creates a subtle upward arc
         self.mcx = (sx + ex) / 2
         self.mcy = (sy + ey) / 2 - control_offset
 
     def update(self, speed=1.0):
+        if self.target_obj is not None:
+            self.ex = self.target_obj.x
+            self.ey = self.target_obj.y
+            self.mcx = (self.sx + self.ex) / 2
+            self.mcy = (self.sy + self.ey) / 2 - self.control_offset
         self.age += speed
 
     @property
@@ -1088,76 +1092,116 @@ class ElectronHop:
         surf.blit(core, (int(x) - 6, int(y) - 6))
 
 
-class CoQShuttle:
-    """Ubiquinone carrying electrons LATERALLY within the membrane from CI/CII to CIII.
-       spawn_delay holds the shuttle invisible at start_x for N frames before it
-       becomes visible and begins moving. Used so that CII's electron rise can
-       visibly complete before the CoQ picks up the electron."""
-    def __init__(self, start_x, end_x, spawn_delay=0):
-        self.x = start_x
-        self.y = MEMBRANE_Y + random.uniform(-8, 8)
-        self.end_x = end_x
-        self.speed = 1.8
-        self.alive = True
-        self.arrived = False
-        self.stuck = False  # True when CIII is backed up
-        self.wobble = random.uniform(0, 2 * math.pi)
-        self.spawn_delay = spawn_delay
+class CoQMolecule:
+    """A single mobile ubiquinone molecule diffusing in the upper leaflet of
+       the inner membrane. Picks up 2 e- from CI or CII (becoming ubiquinol,
+       QH2) and ferries them laterally to CIII, where both are delivered to
+       the Q cycle. Movement is random jitter + a small directional bias:
+       empty molecules drift toward CI/CII, loaded ones drift toward CIII —
+       so flow reads clearly for students without losing the diffusive feel."""
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.loaded = False     # True once 2 e- are attached (QH2)
+        self.reserved = False   # an in-flight electron has claimed this molecule
+        self.vx = random.uniform(-0.2, 0.2)
+        self.vy = random.uniform(-0.1, 0.1)
 
     def update(self, speed):
-        if self.spawn_delay > 0:
-            self.spawn_delay -= 1
-            return
-        if self.stuck:
-            self.wobble += 0.05
-            self.x = self.end_x - 20 + math.sin(self.wobble) * 10
-            return
-        dx = self.end_x - self.x
-        if abs(dx) < 5:
-            self.alive = False
-            self.arrived = True
-        else:
-            self.x += (dx / abs(dx)) * self.speed * speed
+        # Brownian-ish jitter
+        self.vx += random.uniform(-0.09, 0.09)
+        self.vy += random.uniform(-0.06, 0.06)
+        # Directional bias: loaded → CIII (right), empty → CI/CII (left).
+        target_vx = 0.55 if self.loaded else -0.40
+        self.vx += (target_vx - self.vx) * 0.06
+        # Light damping on y so it wanders without escaping the band
+        self.vy *= 0.90
+        # Cap velocities
+        if self.vx < -1.1: self.vx = -1.1
+        if self.vx >  1.1: self.vx =  1.1
+        if self.vy < -0.55: self.vy = -0.55
+        if self.vy >  0.55: self.vy =  0.55
+        self.x += self.vx * speed
+        self.y += self.vy * speed
+        # Clamp within diffusion band, soften velocity on contact
+        if self.x < COQ_BAND_LEFT:
+            self.x = COQ_BAND_LEFT
+            self.vx = abs(self.vx) * 0.4
+        if self.x > COQ_BAND_RIGHT:
+            self.x = COQ_BAND_RIGHT
+            self.vx = -abs(self.vx) * 0.4
+        if self.y < COQ_BAND_TOP:
+            self.y = COQ_BAND_TOP
+            self.vy = abs(self.vy) * 0.4
+        if self.y > COQ_BAND_BOTTOM:
+            self.y = COQ_BAND_BOTTOM
+            self.vy = -abs(self.vy) * 0.4
 
     def draw(self, surf):
-        if self.spawn_delay > 0:
-            return
-        draw_coq(surf, int(self.x), int(self.y), label=False)
-        if self.stuck:
-            pygame.draw.circle(surf, (255, 80, 80), (int(self.x), int(self.y)), 12, 1)
+        pts = []
+        for i in range(6):
+            angle = math.pi / 6 + i * math.pi / 3
+            pts.append((int(self.x + 10 * math.cos(angle)),
+                        int(self.y + 10 * math.sin(angle))))
+        pygame.draw.polygon(surf, COQ_ORANGE, pts)
+        pygame.draw.polygon(surf, (255, 160, 50), pts, 1)
+        if self.loaded:
+            # Ubiquinol (QH2) carries 2 electrons — draw them as a pair so
+            # students see the same 2 e- that later reduce O2 at CIV.
+            _draw_electron_payload(surf, self.x - 5, self.y)
+            _draw_electron_payload(surf, self.x + 5, self.y)
 
 
-class CytCShuttle:
-    """Cytochrome c carrying electrons along IMS (above membrane) from CIII to CIV."""
-    def __init__(self, start_x, end_x):
-        self.x = start_x
-        self.y = IMS_BOTTOM - 15 + random.uniform(-3, 3)
-        self.end_x = end_x
-        self.speed = 2.0
-        self.alive = True
-        self.arrived = False
-        self.stuck = False  # True when CIV is blocked - piles up at CIV
-        self.wobble = random.uniform(0, 2 * math.pi)
+class CytCMolecule:
+    """A single mobile cytochrome c in the IMS (above the membrane). Carries
+       ONE electron at a time via its heme iron (Fe³⁺↔Fe²⁺). Diffuses a touch
+       faster than CoQ because it lives in the aqueous IMS rather than the
+       lipid bilayer — but still slow enough that students can count the
+       electrons riding each molecule. Four cyt c deliveries are needed at
+       CIV to reduce one O2 to two H2O."""
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.loaded = False     # True once 1 e- is attached (Fe²⁺)
+        self.reserved = False   # an in-flight electron has claimed this molecule
+        self.vx = random.uniform(-0.3, 0.3)
+        self.vy = random.uniform(-0.2, 0.2)
 
     def update(self, speed):
-        if self.stuck:
-            # Jitter in place near CIV to show it's stuck
-            self.wobble += 0.05
-            self.x = self.end_x + math.sin(self.wobble) * 8
-            self.y = IMS_BOTTOM - 15 + math.cos(self.wobble * 0.7) * 5
-            return
-        dx = self.end_x - self.x
-        if abs(dx) < 5:
-            self.alive = False
-            self.arrived = True
-        else:
-            self.x += (dx / abs(dx)) * self.speed * speed
+        # Aqueous diffusion: a bit more jitter than CoQ.
+        self.vx += random.uniform(-0.14, 0.14)
+        self.vy += random.uniform(-0.10, 0.10)
+        # Directional bias: loaded → CIV (right), empty → CIII (left).
+        # Symmetric magnitudes so empties clear the CIV side as fast as
+        # loaded molecules arrive, keeping the pool dispersed.
+        target_vx = 0.80 if self.loaded else -0.80
+        self.vx += (target_vx - self.vx) * 0.07
+        self.vy *= 0.88
+        if self.vx < -1.5: self.vx = -1.5
+        if self.vx >  1.5: self.vx =  1.5
+        if self.vy < -0.7: self.vy = -0.7
+        if self.vy >  0.7: self.vy =  0.7
+        self.x += self.vx * speed
+        self.y += self.vy * speed
+        if self.x < CYTC_BAND_LEFT:
+            self.x = CYTC_BAND_LEFT
+            self.vx = abs(self.vx) * 0.4
+        if self.x > CYTC_BAND_RIGHT:
+            self.x = CYTC_BAND_RIGHT
+            self.vx = -abs(self.vx) * 0.4
+        if self.y < CYTC_BAND_TOP:
+            self.y = CYTC_BAND_TOP
+            self.vy = abs(self.vy) * 0.4
+        if self.y > CYTC_BAND_BOTTOM:
+            self.y = CYTC_BAND_BOTTOM
+            self.vy = -abs(self.vy) * 0.4
 
     def draw(self, surf):
-        draw_cytc(surf, self.x, self.y, label=False)
-        if self.stuck:
-            # Red outline to show it's stuck
-            pygame.draw.circle(surf, (255, 80, 80), (int(self.x), int(self.y)), 11, 1)
+        pygame.draw.circle(surf, CYTC_BLUE_LIGHT, (int(self.x), int(self.y)), 9)
+        pygame.draw.circle(surf, (100, 130, 200), (int(self.x), int(self.y)), 9, 1)
+        if self.loaded:
+            # Cyt c carries exactly ONE electron (single heme Fe center).
+            _draw_electron_payload(surf, self.x, self.y)
 
 
 class ATPParticle:
@@ -1350,34 +1394,44 @@ class SimState:
                 self.ims_protons.append(IMSProton(
                     cx + random.randint(-40, 40),
                     random.randint(25, IMS_BOTTOM - 30)))
-        # Seed matrix with starting protons (from ongoing metabolism)
+        # Seed matrix with resting baseline density (matrix is slightly
+        # alkaline relative to IMS when the ETC is running, so fewer H+).
         self.matrix_protons = []
-        for _ in range(50):
+        for _ in range(MATRIX_PROTON_BASELINE):
             self.matrix_protons.append(MatrixProton(
                 random.randint(SIM_X + 40, WIDTH - 40),
                 random.randint(MATRIX_TOP + 20, HEIGHT - 30)))
         self.pumping_protons = []   # protons being pumped upward through complexes
         self.influx_protons = []    # protons flowing down through CV
         self.leak_protons = []      # uncoupler leak protons
-        self.coq_shuttles = []
-        self.cytc_shuttles = []
         self.atp_particles = []
         self.ros_particles = []
         self.water_particles = []
         self.substrate_entries = []   # NADH/FADH2 entry markers at CI/CII
         self.electron_handoffs = []   # legacy visual sparkles (reused for CII rise)
         self.electron_descents = []   # electron descending through CIV to water
-        self.electron_hops = []       # electron hops between complexes and stations
-        self.parked_at_coq = []       # electrons held at CoQ station when CIII blocked
-        self.parked_at_cytc = []      # electrons held at CytC station when CIV blocked
-        self.coq_station_pulse = 0    # brief highlight when CoQ receives/sends
-        self.cytc_station_pulse = 0   # same for CytC station
+        self.electron_hops = []       # electron hops between complexes and carriers
+        # Mobile CoQ pool: ~8 ubiquinone molecules diffusing in the upper
+        # leaflet between CI/CII and CIII. Loaded molecules carry 2 e-.
+        self.coq_pool = [
+            CoQMolecule(
+                random.uniform(COQ_BAND_LEFT + 10, COQ_BAND_RIGHT - 10),
+                random.uniform(COQ_BAND_TOP + 2, COQ_BAND_BOTTOM - 2))
+            for _ in range(COQ_POOL_SIZE)
+        ]
+        # Mobile cyt c pool: ~6 molecules diffusing in the IMS between CIII
+        # and CIV. Each carries 1 e-.
+        self.cytc_pool = [
+            CytCMolecule(
+                random.uniform(CYTC_BAND_LEFT + 5, CYTC_BAND_RIGHT - 5),
+                random.uniform(CYTC_BAND_TOP + 2, CYTC_BAND_BOTTOM - 2))
+            for _ in range(CYTC_POOL_SIZE)
+        ]
+        # CIV stoichiometry counter: 4 cyt c deliveries → 1 O2 → 2 H2O.
+        # Resets after each full cycle.
+        self.civ_electron_count = 0
         self.cv_gradient_strength = 1.0  # 0..1 effective gradient at CV
         # ATP penalty: smooth transition toward the documented
-        # atp_reduction_pct of active chemicals, so rotenone-style
-        # partial blocks visibly drop ATP production over ~45 seconds.
-        self.atp_penalty_current = 1.0
-        self.atp_penalty_target = 1.0
         # Navigation / help overlay toggle
         self.help_open = False
         # Persistent O2 final electron acceptor at CIV's matrix face
@@ -1435,22 +1489,11 @@ class SimState:
         # Gradient counter for HUD
         self.gradient_display = 0
 
-    def _recompute_atp_penalty_target(self):
-        """Combine the atp_reduction_pct of every active chemical into a
-           single penalty multiplier. 60% reduction = penalty 0.40, meaning
-           CV consumption runs at 40% of its normal rate at steady state."""
-        penalty = 1.0
-        for c in self.active_chemicals:
-            pct = c.get("atp_reduction_pct", 0)
-            penalty *= max(0.0, (100 - pct) / 100)
-        self.atp_penalty_target = penalty
-
     def apply_chemical(self, chem):
         if chem["id"] in [c["id"] for c in self.active_chemicals]:
             return
         self.active_chemicals.append(chem)
         self._apply_effect(chem)
-        self._recompute_atp_penalty_target()
         self._trigger_narrative(chem)
 
     def remove_chemical(self, chem_id):
@@ -1469,13 +1512,19 @@ class SimState:
         self.toxin_alert_full = None
         self.toxin_alert_target = None
         self.toxin_alert_timer = 0
-        # Clear parked electrons and any in-flight hops so the chain resumes clean
-        self.parked_at_coq = []
-        self.parked_at_cytc = []
+        # Clear in-flight hops so the chain resumes clean
         self.electron_hops = []
+        # Unload/unreserve every CoQ and cyt c molecule so pending hops don't
+        # reference a stale target and the pools start fresh.
+        for m in self.coq_pool:
+            m.loaded = False
+            m.reserved = False
+        for m in self.cytc_pool:
+            m.loaded = False
+            m.reserved = False
+        self.civ_electron_count = 0
         for c in self.active_chemicals:
             self._apply_effect(c)
-        self._recompute_atp_penalty_target()
 
     def _apply_effect(self, chem):
         target = chem["target"]
@@ -1556,7 +1605,7 @@ class SimState:
                  "color": (255, 100, 100), "duration": 300, "y_pos": 150},
                 {"delay": 650, "text": "H\u207a gradient collapsing \u2014 no new protons pumped into IMS",
                  "color": (255, 80, 80), "duration": 400, "y_pos": 175},
-                {"delay": 850, "text": "ATP production STOPS \u2014 cell energy crisis!",
+                {"delay": 850, "text": "ETC ATP production STOPS \u2014 only glycolysis + TCA GTP remain as non-ETC ATP sources",
                  "color": (255, 50, 50), "duration": 500, "y_pos": 200},
             ]
 
@@ -1572,7 +1621,7 @@ class SimState:
                  "color": (255, 100, 100), "duration": 300, "y_pos": 125},
                 {"delay": 500, "text": "Partial electron transfer generates ROS (superoxide O\u2082\u207b)",
                  "color": (255, 50, 50), "duration": 400, "y_pos": 150},
-                {"delay": 700, "text": "ATP production STOPS \u2014 oxidative damage!",
+                {"delay": 700, "text": "ETC ATP production STOPS \u2014 only glycolysis + TCA GTP remain as non-ETC ATP sources",
                  "color": (255, 50, 50), "duration": 500, "y_pos": 175},
             ]
 
@@ -1586,7 +1635,7 @@ class SimState:
                  "color": (200, 200, 100), "duration": 300, "y_pos": 100},
                 {"delay": 350, "text": "H\u207a pumping reduced ~60% \u2014 gradient weakens",
                  "color": (255, 200, 80), "duration": 300, "y_pos": 125},
-                {"delay": 500, "text": "ATP production drops significantly",
+                {"delay": 500, "text": "ETC ATP production drops sharply \u2014 glycolysis + TCA GTP unaffected",
                  "color": (255, 100, 100), "duration": 400, "y_pos": 150},
             ]
 
@@ -1598,7 +1647,7 @@ class SimState:
                  "color": (255, 150, 80), "duration": 300, "y_pos": 75},
                 {"delay": 200, "text": "NADH via CI still works \u2014 most electron flow continues",
                  "color": (200, 200, 100), "duration": 300, "y_pos": 100},
-                {"delay": 350, "text": "ATP production reduced ~20%",
+                {"delay": 350, "text": "ETC ATP reduced ~20% \u2014 glycolysis + TCA GTP unaffected",
                  "color": (255, 200, 80), "duration": 300, "y_pos": 125},
             ]
 
@@ -1612,7 +1661,7 @@ class SimState:
                  "color": (255, 200, 80), "duration": 300, "y_pos": 100},
                 {"delay": 350, "text": "ETC slows \u2014 too much gradient resistance to pump more H\u207a",
                  "color": (255, 200, 80), "duration": 300, "y_pos": 125},
-                {"delay": 500, "text": "ATP synthesis STOPS \u2014 despite intact electron transport!",
+                {"delay": 500, "text": "ETC ATP synthesis STOPS despite intact e\u207b transport \u2014 only glycolysis + TCA GTP remain",
                  "color": (255, 50, 50), "duration": 500, "y_pos": 150},
             ]
 
@@ -1626,7 +1675,7 @@ class SimState:
                  "color": (200, 200, 100), "duration": 300, "y_pos": 100},
                 {"delay": 350, "text": "Proton gradient dissipated as HEAT instead of ATP",
                  "color": (255, 150, 50), "duration": 300, "y_pos": 125},
-                {"delay": 500, "text": "ATP production drops \u2014 energy wasted as heat!",
+                {"delay": 500, "text": "ETC ATP drops \u2014 energy wasted as heat; glycolysis + TCA GTP unaffected",
                  "color": (255, 80, 80), "duration": 400, "y_pos": 150},
             ]
 
@@ -1640,6 +1689,8 @@ class SimState:
                  "color": (100, 200, 100), "duration": 300, "y_pos": 100},
                 {"delay": 350, "text": "Therapeutic effect: helps control blood sugar in diabetes",
                  "color": (100, 200, 255), "duration": 400, "y_pos": 125},
+                {"delay": 500, "text": "Note: reduction applies to ETC ATP only \u2014 glycolysis + TCA GTP unaffected",
+                 "color": (180, 200, 230), "duration": 400, "y_pos": 150},
             ]
 
         elif effect == "ros_generation":
@@ -1652,6 +1703,8 @@ class SimState:
                  "color": (255, 50, 50), "duration": 300, "y_pos": 100},
                 {"delay": 350, "text": "Cardiotoxicity \u2014 high mitochondrial density in heart cells",
                  "color": (255, 50, 50), "duration": 400, "y_pos": 125},
+                {"delay": 500, "text": "Note: reduction applies to ETC ATP only \u2014 glycolysis + TCA GTP unaffected",
+                 "color": (180, 200, 230), "duration": 400, "y_pos": 150},
             ]
 
         elif effect == "transport_block":
@@ -1664,6 +1717,8 @@ class SimState:
                  "color": (255, 200, 80), "duration": 300, "y_pos": 100},
                 {"delay": 350, "text": "Cell starved of ATP despite mitochondria producing it!",
                  "color": (255, 50, 50), "duration": 400, "y_pos": 125},
+                {"delay": 500, "text": "Note: reduction applies to ETC ATP export only \u2014 glycolysis + TCA GTP remain in the cytosol",
+                 "color": (180, 200, 230), "duration": 400, "y_pos": 150},
             ]
 
     def update_narrative(self):
@@ -1709,17 +1764,25 @@ def sim_update():
     ciii_ok = not sim.blocked["CIII"]
     civ_ok = not sim.blocked["CIV"]
 
-    # --- Cascade backup logic (station-based) ---
-    # Count parked electrons at each station to determine backup state.
-    sim.stuck_coq_count = len(sim.parked_at_coq)
-    sim.stuck_cytc_count = len(sim.parked_at_cytc)
+    # --- Update CoQ and cyt c pool diffusion ---
+    for m in sim.coq_pool:
+        m.update(flux)
+    for m in sim.cytc_pool:
+        m.update(flux)
 
-    # CoQ station full -> CI/CII cannot offload to CoQ (= "ci_backed_up")
-    # CytC station full -> CIII cannot offload to CytC (= "ciii_backed_up")
-    # Thresholds kept low so toxin cascades propagate in ~5 seconds rather
-    # than stringing out across tens of firings.
-    sim.ci_backed_up = sim.stuck_coq_count >= 2
-    sim.ciii_backed_up = sim.stuck_cytc_count >= 2
+    # --- Cascade backup logic ---
+    # Loaded CoQs can't unload until CIII is clear. Once the whole pool is
+    # loaded, CI/CII have nowhere to offload and the chain stalls. Same
+    # relationship between cyt c and CIV.
+    sim.stuck_coq_count = sum(1 for m in sim.coq_pool if m.loaded)
+    sim.stuck_cytc_count = sum(1 for m in sim.cytc_pool if m.loaded)
+
+    free_coq_available = any(
+        (not m.loaded) and (not m.reserved) for m in sim.coq_pool)
+    free_cytc_available = any(
+        (not m.loaded) and (not m.reserved) for m in sim.cytc_pool)
+    sim.ci_backed_up = not free_coq_available
+    sim.ciii_backed_up = not free_cytc_available
 
     if sim.ci_backed_up:
         sim.chain_status = "blocked"
@@ -1728,44 +1791,96 @@ def sim_update():
     else:
         sim.chain_status = "normal"
 
-    # --- Step 1: NADH donates electrons to Complex I, which hops e- to CoQ ---
-    # Hop path stays WITHIN the membrane bilayer (CoQ is a lipid-soluble
-    # carrier that resides inside the membrane).
+    def _find_free_coq(near_x):
+        best = None
+        best_d = float("inf")
+        for m in sim.coq_pool:
+            if m.loaded or m.reserved:
+                continue
+            d = abs(m.x - near_x)
+            if d < best_d:
+                best_d = d
+                best = m
+        return best
+
+    def _find_free_cytc(near_x):
+        best = None
+        best_d = float("inf")
+        for m in sim.cytc_pool:
+            if m.loaded or m.reserved:
+                continue
+            d = abs(m.x - near_x)
+            if d < best_d:
+                best_d = d
+                best = m
+        return best
+
+    # --- Step 1: NADH donates electrons to Complex I, which hops e- to a
+    # nearby diffusing CoQ molecule in the membrane. ---
     spawn_nadh = max(1, int(55 / flux))
     ci_can_work = ci_rate > 0 and not sim.blocked["CI"] and not sim.ci_backed_up
     if ci_can_work and f % spawn_nadh == 0:
         if ci_rate < 1.0 and random.random() > ci_rate:
             pass
         else:
-            sim.complex_active["CI"] = 20
-            _pump_protons("CI", 4)
-            sim.substrate_entries.append(
-                SubstrateEntry(CX["CI"], "NADH", (120, 220, 255)))
-            sim.electron_hops.append(ElectronHop(
-                "to_CoQ",
-                CX["CI"] + 35, MEMBRANE_Y,
-                COQ_STATION_X, COQ_STATION_Y,
-                duration=22, control_offset=3))
+            target_coq = _find_free_coq(CX["CI"])
+            if target_coq is not None:
+                target_coq.reserved = True
+                sim.complex_active["CI"] = 20
+                _pump_protons("CI", 4)
+                sim.substrate_entries.append(
+                    SubstrateEntry(CX["CI"], "NADH", (120, 220, 255)))
+                sim.electron_hops.append(ElectronHop(
+                    "to_CoQ",
+                    CX["CI"] + 35, MEMBRANE_Y,
+                    target_coq.x, target_coq.y,
+                    duration=22, control_offset=3,
+                    target_obj=target_coq))
 
-    # --- Step 2: FADH2 donates electrons to Complex II, which hops e- to CoQ ---
+    # --- Step 2: FADH2 donates electrons to Complex II, also to a nearby CoQ ---
     spawn_fadh2 = max(1, int(80 / flux))
     cii_can_work = cii_rate > 0 and not sim.blocked["CII"] and not sim.ci_backed_up
     if cii_can_work and f % spawn_fadh2 == 0:
-        sim.complex_active["CII"] = 20
-        # FADH2 entry marker is spawned but hidden for current game level;
-        # re-enable by setting visible=True for a future "Level 2" reveal.
-        sim.substrate_entries.append(
-            SubstrateEntry(CX["CII"], "FADH\u2082", (255, 180, 100), visible=False))
-        # Start at CII's TOP edge (y=408, where CII meets the membrane) so
-        # the yellow electron is visible against the dark membrane rather
-        # than blending with CII's red body. The electron then curves up
-        # through the membrane to the CoQ station. Slow duration so the
-        # less-frequent FADH2 contribution is clearly trackable.
-        sim.electron_hops.append(ElectronHop(
-            "to_CoQ",
-            CX["CII"], MEMBRANE_Y + 28,
-            COQ_STATION_X, COQ_STATION_Y,
-            duration=32, control_offset=14))
+        target_coq = _find_free_coq(CX["CII"])
+        if target_coq is not None:
+            target_coq.reserved = True
+            sim.complex_active["CII"] = 20
+            sim.substrate_entries.append(
+                SubstrateEntry(CX["CII"], "FADH\u2082", (255, 180, 100), visible=False))
+            # Start at CII's TOP edge so the electron is visible against the
+            # dark membrane rather than blending with CII's red body.
+            sim.electron_hops.append(ElectronHop(
+                "to_CoQ",
+                CX["CII"], MEMBRANE_Y + 28,
+                target_coq.x, target_coq.y,
+                duration=32, control_offset=14,
+                target_obj=target_coq))
+
+    # --- Step 2b: Loaded CoQ molecules drifted near CIII offload (2 e-) ---
+    if ciii_ok and not sim.ciii_backed_up:
+        for m in sim.coq_pool:
+            if m.loaded and m.x >= COQ_DROPOFF_X:
+                sim.electron_hops.append(ElectronHop(
+                    "to_CIII",
+                    m.x, m.y,
+                    CX["CIII"] - 35, MEMBRANE_Y,
+                    duration=22, control_offset=3))
+                m.loaded = False
+
+    # --- Step 2c: Loaded cyt c molecules drifted near CIV offload (1 e-) ---
+    if civ_ok:
+        for m in sim.cytc_pool:
+            if m.loaded and m.x >= CYTC_DROPOFF_X:
+                sim.electron_hops.append(ElectronHop(
+                    "to_CIV",
+                    m.x, m.y,
+                    CX["CIV"], MEMBRANE_Y - 35,
+                    duration=22, control_offset=-6))
+                m.loaded = False
+                # Kick the just-emptied molecule back toward CIII so it
+                # doesn't linger against the CIV wall and pile up.
+                m.vx = random.uniform(-1.4, -1.0)
+                m.vy = random.uniform(-0.3, 0.3)
 
     # --- Step 3: Process electron hops, dispatching phase transitions ---
     spawned_hops = []
@@ -1774,86 +1889,67 @@ def sim_update():
         if h.arrived and not h.dispatched:
             h.dispatched = True
             if h.phase == "to_CoQ":
-                sim.coq_station_pulse = 35
-                if ciii_ok and not sim.ciii_backed_up:
-                    # Continue: CoQ station -> CIII (stays within membrane)
-                    spawned_hops.append(ElectronHop(
-                        "to_CIII",
-                        COQ_STATION_X, COQ_STATION_Y,
-                        CX["CIII"] - 35, MEMBRANE_Y,
-                        duration=22, control_offset=3))
-                else:
-                    # CIII blocked or backed up - park electron at CoQ station
-                    if len(sim.parked_at_coq) < 8:
-                        sim.parked_at_coq.append({
-                            "wobble": random.uniform(0, 2 * math.pi),
-                            "phase_offset": random.uniform(-0.5, 0.5),
-                        })
+                # Electron reached its target CoQ molecule: flip to loaded.
+                if h.target_obj is not None:
+                    h.target_obj.loaded = True
+                    h.target_obj.reserved = False
+                # (Dropoff to CIII happens later, once the loaded molecule
+                # has diffused into CIII's capture zone.)
             elif h.phase == "to_CIII":
-                # Electron arrives at CIII: activate, pump, then hop to CytC
+                # One CoQ delivery = 2 electrons. CIII pumps 4 H+ total
+                # (Q cycle), then hands the 2 e- off to 2 separate cyt c
+                # molecules, one per Q-cycle turn. If there aren't two free
+                # cyt c, hand off to whatever IS free; the rest stalls CIII.
                 sim.complex_active["CIII"] = 20
                 _pump_protons("CIII", 4)
-                spawned_hops.append(ElectronHop(
-                    "to_CytC",
-                    CX["CIII"] + 35, MEMBRANE_Y,
-                    CYTC_STATION_X, CYTC_STATION_Y,
-                    duration=22, control_offset=3))
-            elif h.phase == "to_CytC":
-                sim.cytc_station_pulse = 35
-                if civ_ok:
-                    # Continue: CytC station -> CIV (stays within membrane)
+                first = _find_free_cytc(CX["CIII"] + 30)
+                if first is not None:
+                    first.reserved = True
                     spawned_hops.append(ElectronHop(
-                        "to_CIV",
-                        CYTC_STATION_X, CYTC_STATION_Y,
-                        CX["CIV"] - 35, MEMBRANE_Y,
-                        duration=22, control_offset=3))
-                else:
-                    # CIV blocked - park electron at CytC station
-                    if len(sim.parked_at_cytc) < 8:
-                        sim.parked_at_cytc.append({
-                            "wobble": random.uniform(0, 2 * math.pi),
-                            "phase_offset": random.uniform(-0.5, 0.5),
-                        })
+                        "to_CytC",
+                        CX["CIII"] + 20, MEMBRANE_Y - 35,
+                        first.x, first.y,
+                        duration=22, control_offset=-10,
+                        target_obj=first))
+                second = _find_free_cytc(CX["CIII"] + 60)
+                if second is not None and second is not first:
+                    second.reserved = True
+                    # Stagger the second hop ~10 frames behind by starting
+                    # its age negative via the control_offset trick: easier
+                    # to just delay via a phase-less holder? Simpler: spawn
+                    # it now but with a longer duration so the two hops
+                    # visibly arrive one after the other.
+                    spawned_hops.append(ElectronHop(
+                        "to_CytC",
+                        CX["CIII"] + 20, MEMBRANE_Y - 35,
+                        second.x, second.y,
+                        duration=34, control_offset=-14,
+                        target_obj=second))
+            elif h.phase == "to_CytC":
+                # Electron reached its target cyt c molecule: flip to loaded.
+                if h.target_obj is not None:
+                    h.target_obj.loaded = True
+                    h.target_obj.reserved = False
+                # (Dropoff to CIV happens later via diffusion.)
             elif h.phase == "to_CIV":
-                # Electron arrives at CIV: activate, pump, begin descent to water
+                # Electron arrives at CIV. Every electron pumps 2 H+. A water
+                # molecule only forms once 2 electrons have arrived (one pair:
+                # 2 e- + 2 H+ + 1/2 O2 → H2O). Every 4 arrivals = 1 O2 fully
+                # reduced to 2 H2O, counter resets.
                 sim.complex_active["CIV"] = 20
                 _pump_protons("CIV", 2)
-                _consume_matrix_protons_for_water("CIV", 2)
+                sim.civ_electron_count += 1
+                pair_complete = (sim.civ_electron_count % 2 == 0)
                 sim.electron_descents.append(
-                    ElectronDescent(CX["CIV"], MEMBRANE_Y, MATRIX_TOP + 35))
+                    ElectronDescent(CX["CIV"], MEMBRANE_Y, MATRIX_TOP + 35,
+                                    spawn_water=pair_complete))
+                if pair_complete:
+                    _consume_matrix_protons_for_water("CIV", 2)
+                if sim.civ_electron_count >= 4:
+                    # One full O2 has been reduced to 2 H2O. Reset.
+                    sim.civ_electron_count = 0
     sim.electron_hops.extend(spawned_hops)
     sim.electron_hops = [h for h in sim.electron_hops if not h.done]
-
-    # --- Station pulses decay ---
-    if sim.coq_station_pulse > 0:
-        sim.coq_station_pulse -= 1
-    if sim.cytc_station_pulse > 0:
-        sim.cytc_station_pulse -= 1
-
-    # --- Release parked electrons when downstream blocks clear ---
-    release_interval = max(1, int(18 / flux))
-    if ciii_ok and not sim.ciii_backed_up and sim.parked_at_coq and f % release_interval == 0:
-        sim.parked_at_coq.pop(0)
-        sim.electron_hops.append(ElectronHop(
-            "to_CIII",
-            COQ_STATION_X, COQ_STATION_Y,
-            CX["CIII"] - 35, MEMBRANE_Y,
-            duration=22, control_offset=3))
-        sim.coq_station_pulse = 20
-    if civ_ok and sim.parked_at_cytc and f % release_interval == 0:
-        sim.parked_at_cytc.pop(0)
-        sim.electron_hops.append(ElectronHop(
-            "to_CIV",
-            CYTC_STATION_X, CYTC_STATION_Y,
-            CX["CIV"] - 35, MEMBRANE_Y,
-            duration=22, control_offset=3))
-        sim.cytc_station_pulse = 20
-
-    # --- Update parked electron wobble phase ---
-    for p in sim.parked_at_coq:
-        p["wobble"] += 0.06
-    for p in sim.parked_at_cytc:
-        p["wobble"] += 0.06
 
     # --- Step 5: Pumping protons travel upward into IMS ---
     for p in sim.pumping_protons:
@@ -1880,27 +1976,15 @@ def sim_update():
     # --- Step 7: CV draws protons from IMS pool to make ATP ---
     # ATP synthase rate is proportional to proton-motive force. As the IMS
     # pool drains, the effective gradient drops and ATP synthesis slows
-    # proportionally. Below a residual threshold of ~3 protons, the force
-    # is insufficient to drive ATP synthesis and CV stops entirely.
-    # Additionally, active chemicals impose an atp_penalty that smoothly
-    # lerps toward the documented atp_reduction_pct over ~45 seconds so
-    # students see ATP production drop in lockstep with the toxin's
-    # effect (even for partial blocks like rotenone that don't drain
-    # the pool via cascade).
+    # proportionally. Below a residual threshold of ~3 protons of
+    # IMS−matrix differential, the force is insufficient to drive ATP
+    # synthesis and CV stops entirely.
     cv_ok = not sim.blocked["CV"] and not sim.transport_blocked
-    pool_size = len(sim.ims_protons)
-    pool_gradient = max(0.0, min(1.0, (pool_size - 3) / 30))
-    # Lerp the atp penalty toward its target (~45 sec to near-steady).
-    sim.atp_penalty_current += (
-        sim.atp_penalty_target - sim.atp_penalty_current) * 0.0012
-    # Direct penalty override: when chemicals are active, effective_gradient
-    # is set to the penalty so ATP rate exactly matches the stated
-    # atp_reduction_pct. The min() with pool_gradient still honors the
-    # thermodynamic threshold (if the pool drains below ~3, CV stops).
-    if sim.active_chemicals:
-        effective_gradient = min(pool_gradient, sim.atp_penalty_current)
-    else:
-        effective_gradient = pool_gradient
+    ims_n = len(sim.ims_protons)
+    mat_n = len(sim.matrix_protons)
+    differential = max(0, ims_n - mat_n)
+    pool_gradient = max(0.0, min(1.0, (differential - 3) / 30))
+    effective_gradient = pool_gradient
     sim.cv_gradient_strength = effective_gradient  # exposed for decorative fade
 
     cv_interval = max(1, int(10 / (flux * max(0.01, effective_gradient))))
@@ -1933,11 +2017,13 @@ def sim_update():
     for p in sim.influx_protons:
         p.update(flux)
         if p.done:
-            # Proton enters the matrix pool
+            # Proton enters the matrix pool at a random position across the
+            # full matrix width — real matrix H+ diffuse freely; clustering
+            # them right under CV creates a misleading visual hotspot.
             if len(sim.matrix_protons) < MATRIX_PROTON_CAP:
                 sim.matrix_protons.append(MatrixProton(
-                    CX["CV"] + random.uniform(-30, 30),
-                    MATRIX_TOP + 20 + random.uniform(0, 40)))
+                    random.randint(SIM_X + 40, WIDTH - 40),
+                    random.randint(MATRIX_TOP + 20, HEIGHT - 30)))
             # ~3 H+ per ATP (within the biologically reasonable range)
             if random.random() < 1 / 3:
                 sim.atp_particles.append(ATPParticle(CX["CV"], MATRIX_TOP))
@@ -1960,7 +2046,9 @@ def sim_update():
     for p in sim.leak_protons:
         p.update(flux)
         if p.done and len(sim.matrix_protons) < MATRIX_PROTON_CAP:
-            sim.matrix_protons.append(MatrixProton(p.x, MATRIX_TOP + 20 + random.uniform(0, 30)))
+            sim.matrix_protons.append(MatrixProton(
+                random.randint(SIM_X + 40, WIDTH - 40),
+                random.randint(MATRIX_TOP + 20, HEIGHT - 30)))
     sim.leak_protons = [p for p in sim.leak_protons if not p.done]
 
     # --- ROS ---
@@ -2010,14 +2098,39 @@ def sim_update():
     sim.cv_rotation += rotation_speed
 
     # --- Metabolic H+ generation in matrix ---
-    # TCA cycle, NADH/FADH2 reactions, and other metabolism constantly
-    # produce H+ in matrix. Faster rate so the matrix pool stays visibly
-    # populated (pumping + CIV water formation consume matrix H+ quickly).
-    metabolic_interval = max(1, int(2 / flux))
-    if f % metabolic_interval == 0 and len(sim.matrix_protons) < MATRIX_PROTON_CAP:
+    # TCA cycle + NADH/FADH2 reactions constantly produce matrix H+. We
+    # target a RESTING BASELINE (not a flood): generation is fast enough
+    # to sustain pumping but slow enough that pumping + CIV water formation
+    # actually deplete the pool. This keeps matrix visually sparse relative
+    # to the IMS while the ETC is running.
+    metabolic_interval = max(1, int(8 / flux))
+    if (f % metabolic_interval == 0
+            and len(sim.matrix_protons) < MATRIX_PROTON_BASELINE):
         sim.matrix_protons.append(MatrixProton(
             random.randint(SIM_X + 40, WIDTH - 100),
             random.randint(MATRIX_TOP + 30, HEIGHT - 30)))
+
+    # --- Passive proton leak (IMS → matrix) ---
+    # Real mitochondrial membranes are slightly leaky to H+. This is the
+    # basal "proton leak" (~20-25% of resting O2 consumption in vivo). It
+    # is dwarfed by active pumping when the ETC runs, but when the ETC
+    # stops it quietly equilibrates the two pools so the gradient collapses
+    # toward equal densities instead of freezing in place. Leak rate ramps
+    # up as the IMS:matrix ratio grows, so equilibrium is stable.
+    leak_interval = max(1, int(14 / flux))
+    if f % leak_interval == 0 and len(sim.ims_protons) > 0:
+        ims_n = len(sim.ims_protons)
+        mat_n = len(sim.matrix_protons)
+        # Only leak while IMS is denser than matrix (never invert gradient).
+        if ims_n > mat_n and mat_n < MATRIX_PROTON_EQUILIBRIUM:
+            idx = random.randint(0, ims_n - 1)
+            sim.ims_protons.pop(idx)
+            # Spawn at a random matrix position — leaked protons should
+            # disperse across the full matrix, not cluster where the leak
+            # happened (otherwise matrix H+ pile up below CV).
+            sim.matrix_protons.append(MatrixProton(
+                random.randint(SIM_X + 40, WIDTH - 40),
+                random.randint(MATRIX_TOP + 20, HEIGHT - 30)))
 
     # Decay complex active timers
     for k in sim.complex_active:
@@ -2118,9 +2231,62 @@ def draw_all(mx, my):
                    blocked=sim.blocked["CV"] or sim.transport_blocked,
                    highlight=(hovered == "CV"))
 
-    # CoQ and CytC stations (drawn after complexes, on top of the membrane)
-    draw_coq_station(screen, pulse=sim.coq_station_pulse)
-    draw_cytc_station(screen, pulse=sim.cytc_station_pulse)
+    # CoQ pool: faint band outline + caption + diffusing molecules
+    band_surf = pygame.Surface(
+        (COQ_BAND_RIGHT - COQ_BAND_LEFT, COQ_BAND_BOTTOM - COQ_BAND_TOP),
+        pygame.SRCALPHA)
+    pygame.draw.rect(band_surf, (255, 170, 60, 22),
+                     (0, 0, band_surf.get_width(), band_surf.get_height()),
+                     border_radius=6)
+    pygame.draw.rect(band_surf, (255, 170, 60, 55),
+                     (0, 0, band_surf.get_width(), band_surf.get_height()),
+                     1, border_radius=6)
+    screen.blit(band_surf, (COQ_BAND_LEFT, COQ_BAND_TOP))
+    caption = FONT_SM.render("CoQ pool (mobile in membrane)", True, (255, 215, 140))
+    cap_x = (COQ_BAND_LEFT + COQ_BAND_RIGHT) // 2 - caption.get_width() // 2
+    cap_y = COQ_BAND_TOP - 22
+    cap_bg = pygame.Surface(
+        (caption.get_width() + 14, caption.get_height() + 6), pygame.SRCALPHA)
+    pygame.draw.rect(cap_bg, (30, 20, 8, 200),
+                     (0, 0, cap_bg.get_width(), cap_bg.get_height()),
+                     border_radius=6)
+    pygame.draw.rect(cap_bg, (255, 180, 60, 220),
+                     (0, 0, cap_bg.get_width(), cap_bg.get_height()),
+                     1, border_radius=6)
+    screen.blit(cap_bg, (cap_x - 7, cap_y - 3))
+    screen.blit(caption, (cap_x, cap_y))
+    for m in sim.coq_pool:
+        m.draw(screen)
+
+    # Cyt c pool: faint band outline + caption pill + diffusing molecules.
+    cytc_band_surf = pygame.Surface(
+        (CYTC_BAND_RIGHT - CYTC_BAND_LEFT, CYTC_BAND_BOTTOM - CYTC_BAND_TOP),
+        pygame.SRCALPHA)
+    pygame.draw.rect(cytc_band_surf, (120, 170, 230, 22),
+                     (0, 0, cytc_band_surf.get_width(),
+                      cytc_band_surf.get_height()),
+                     border_radius=6)
+    pygame.draw.rect(cytc_band_surf, (120, 170, 230, 55),
+                     (0, 0, cytc_band_surf.get_width(),
+                      cytc_band_surf.get_height()),
+                     1, border_radius=6)
+    screen.blit(cytc_band_surf, (CYTC_BAND_LEFT, CYTC_BAND_TOP))
+    cytc_caption = FONT_SM.render("Cyt c pool (mobile in IMS)", True, (180, 215, 255))
+    ccx = (CYTC_BAND_LEFT + CYTC_BAND_RIGHT) // 2 - cytc_caption.get_width() // 2
+    ccy = CYTC_BAND_TOP - 22
+    cc_bg = pygame.Surface(
+        (cytc_caption.get_width() + 14, cytc_caption.get_height() + 6),
+        pygame.SRCALPHA)
+    pygame.draw.rect(cc_bg, (10, 18, 34, 200),
+                     (0, 0, cc_bg.get_width(), cc_bg.get_height()),
+                     border_radius=6)
+    pygame.draw.rect(cc_bg, (120, 170, 230, 220),
+                     (0, 0, cc_bg.get_width(), cc_bg.get_height()),
+                     1, border_radius=6)
+    screen.blit(cc_bg, (ccx - 7, ccy - 3))
+    screen.blit(cytc_caption, (ccx, ccy))
+    for m in sim.cytc_pool:
+        m.draw(screen)
 
     # Persistent H+ population above ATP synthase — fades with the real
     # gradient strength so when CV stops (pool drained to threshold) the
@@ -2155,36 +2321,28 @@ def draw_all(mx, my):
     # O2 final electron acceptor at CIV's matrix face
     sim.oxygen_acceptor.draw(screen)
 
-    # Parked electrons at stations (when downstream is blocked)
-    for i, p in enumerate(sim.parked_at_coq):
-        offset_x = math.cos(p["wobble"]) * 18
-        offset_y = math.sin(p["wobble"]) * 10 - 22 - (i // 4) * 14
-        px = COQ_STATION_X + offset_x
-        py = COQ_STATION_Y + offset_y
-        _draw_electron_payload(screen, px, py)
-    for i, p in enumerate(sim.parked_at_cytc):
-        offset_x = math.cos(p["wobble"]) * 18
-        offset_y = math.sin(p["wobble"]) * 10 - 22 - (i // 4) * 14
-        px = CYTC_STATION_X + offset_x
-        py = CYTC_STATION_Y + offset_y
-        _draw_electron_payload(screen, px, py)
-
     # Partial block indicator
     if sim.partial_block.get("CI"):
         txt = FONT_TINY.render("PARTIAL INHIBITION", True, (255, 200, 50))
         screen.blit(txt, (CX["CI"] - txt.get_width() // 2, MEMBRANE_Y + 78))
 
-    # Electron backup labels near stations
-    if sim.stuck_cytc_count > 0:
+    # Electron backup labels
+    if sim.stuck_cytc_count >= CYTC_POOL_SIZE - 1:
         txt = FONT_TINY.render(
-            f"e\u207b backup ({sim.stuck_cytc_count} parked at Cyt c)",
+            f"e\u207b backup ({sim.stuck_cytc_count}/{CYTC_POOL_SIZE} cyt c loaded)",
             True, (255, 100, 100))
-        screen.blit(txt, (CYTC_STATION_X - txt.get_width() // 2, COQ_STATION_Y - 60))
-    if sim.stuck_coq_count > 0:
+        screen.blit(
+            txt,
+            ((CYTC_BAND_LEFT + CYTC_BAND_RIGHT) // 2 - txt.get_width() // 2,
+             CYTC_BAND_TOP - 40))
+    if sim.stuck_coq_count >= COQ_POOL_SIZE - 1:
         txt = FONT_TINY.render(
-            f"e\u207b backup ({sim.stuck_coq_count} parked at CoQ)",
+            f"e\u207b backup ({sim.stuck_coq_count}/{COQ_POOL_SIZE} CoQ loaded)",
             True, (255, 100, 100))
-        screen.blit(txt, (COQ_STATION_X - txt.get_width() // 2, COQ_STATION_Y - 60))
+        screen.blit(
+            txt,
+            ((COQ_BAND_LEFT + COQ_BAND_RIGHT) // 2 - txt.get_width() // 2,
+             COQ_BAND_TOP - 30))
 
     # (skull image is drawn by _draw_block_x inside each complex's draw function)
 
@@ -2519,11 +2677,14 @@ def draw_info_panel(surf):
     target_label = FONT_TARGET.render(f"Target: {target_val}", True, (255, 255, 255))
     panel.blit(target_label, (15, y)); y += 30
 
-    # ATP Reduction - larger, bold, bright red
-    if "atp_reduction_pct" in info:
-        pct = info['atp_reduction_pct']
-        atp_txt = FONT_ATP_RED.render(f"ATP Reduction: ~{pct}%", True, (255, 50, 50))
-        panel.blit(atp_txt, (15, y)); y += 30
+    # Block-type label (replaces the old ATP-reduction percentage). Derived
+    # from the chemical's `effect` field so students see WHAT KIND of
+    # disruption the toxin causes, not a percentage that hid the all-or-
+    # nothing nature of a full block.
+    effect_label = EFFECT_LABEL.get(info.get("effect", ""), None)
+    if effect_label:
+        block_txt = FONT_ATP_RED.render(effect_label, True, (255, 50, 50))
+        panel.blit(block_txt, (15, y)); y += 30
 
     pygame.draw.line(panel, (80, 80, 100), (15, y), (pw - 15, y)); y += 10
 
@@ -2624,8 +2785,11 @@ HELP_SECTIONS = [
         ("Esc", "Close an open panel, or exit the simulation"),
     ]),
     ("What to watch", [
-        ("ATP Production gauge (top right)",
-         "Live percent of normal ATP output — drains when toxins hit"),
+        ("Active Effects panel (top right)",
+         "Lists currently applied chemicals with a plain-language block "
+         "type (complete block, partial block, uncoupler, ROS generator, "
+         "or transport block). Watch the electron flow and proton gradient "
+         "in the sim to see the actual impact play out."),
         ("Skull icon on a complex",
          "Shows which complex the active toxin is hitting"),
         ("Narrative panel (top of simulation)",
@@ -2698,98 +2862,60 @@ def draw_help_panel(surf):
 # ---------------------------------------------------------------------------
 # HUD
 # ---------------------------------------------------------------------------
+EFFECT_LABEL = {
+    "block": "Complete ETC block",
+    "partial_block": "Partial ETC block",
+    "uncouple": "Uncoupler (gradient leak)",
+    "ros_generation": "ROS generation (e\u207b diversion)",
+    "transport_block": "ATP / ADP transport block",
+}
+
+# INTERNAL DESIGN TARGET (not shown to students): every effect should
+# reach its on-screen steady state within ~30 simulation seconds of
+# application. Full-collapse blockers (CIV/CIII/CV) equilibrate the
+# IMS and matrix pools via passive leak; partial effects (CI/CII block,
+# partial_block, uncoupler, ros, transport) reach a reduced steady
+# flux. If tuning drifts past 30s for any toxin, retune the relevant
+# rate constant (passive leak interval, ci rate scaler, uncoupler leak
+# interval, metabolic generation interval) rather than exposing a
+# user-visible timer — a visible timer risks students misreading it
+# as "how long the toxin takes to be lethal in a real body".
+
+
 def draw_hud(surf):
-    # --- Dramatic ATP Production gauge (top right) ---
-    # Starts at 100% and drains visually toward the toxin's documented
-    # reduction level. Color shifts green -> yellow -> orange -> red as
-    # production drops. Target level shown as a dashed red line.
-    atp_pct = int(round(sim.atp_penalty_current * 100))
-    fill_frac = max(0.0, min(1.0, sim.atp_penalty_current))
-    if atp_pct >= 80:
-        fill_color = (100, 220, 120)
-    elif atp_pct >= 50:
-        fill_color = (240, 220, 80)
-    elif atp_pct >= 20:
-        fill_color = (255, 150, 60)
-    else:
-        fill_color = (255, 70, 70)
-
-    gauge_w = 62
-    gauge_h = 210
-    gauge_x = WIDTH - 130
-    gauge_y = 60
-
-    # "ATP PRODUCTION" heading above gauge
-    head1 = FONT_TITLE.render("ATP", True, (220, 220, 240))
-    head2 = FONT_TINY.render("PRODUCTION", True, (180, 180, 200))
-    surf.blit(head1, (gauge_x + gauge_w // 2 - head1.get_width() // 2, 12))
-    surf.blit(head2, (gauge_x + gauge_w // 2 - head2.get_width() // 2, 30))
-
-    # Large percentage above the tube — this is the dramatic number
-    pct_txt = FONT_XL.render(f"{atp_pct}%", True, fill_color)
-    surf.blit(pct_txt, (gauge_x + gauge_w // 2 - pct_txt.get_width() // 2, 42))
-
-    # Tube outline (dark background)
-    tube_rect = pygame.Rect(gauge_x, gauge_y + 20, gauge_w, gauge_h)
-    pygame.draw.rect(surf, (20, 22, 36), tube_rect, border_radius=10)
-    pygame.draw.rect(surf, (100, 110, 150), tube_rect, 3, border_radius=10)
-
-    # Fill from the bottom (liquid level)
-    inner_w = gauge_w - 8
-    inner_h = gauge_h - 8
-    fill_h = int(inner_h * fill_frac)
-    if fill_h > 0:
-        fill_rect = pygame.Rect(
-            gauge_x + 4,
-            gauge_y + 24 + (inner_h - fill_h),
-            inner_w,
-            fill_h)
-        # Glow layer for drama
-        glow = pygame.Surface((inner_w + 20, fill_h + 20), pygame.SRCALPHA)
-        pygame.draw.rect(glow, (*fill_color, 70),
-                         (10, 10, inner_w, fill_h), border_radius=6)
-        surf.blit(glow, (fill_rect.x - 10, fill_rect.y - 10))
-        # Solid fill
-        pygame.draw.rect(surf, fill_color, fill_rect, border_radius=6)
-        # Highlight stripe on the left edge for a glass-tube feel
-        hl_rect = pygame.Rect(fill_rect.x + 4, fill_rect.y + 2, 4, fill_h - 4)
-        if hl_rect.height > 0:
-            hl_surf = pygame.Surface(hl_rect.size, pygame.SRCALPHA)
-            hl_surf.fill((255, 255, 255, 70))
-            surf.blit(hl_surf, hl_rect.topleft)
-
-    # Tick marks and labels on the left side of the tube
-    for tick_pct in (0, 25, 50, 75, 100):
-        ty = gauge_y + 24 + int(inner_h * (1 - tick_pct / 100))
-        pygame.draw.line(surf, (160, 160, 180),
-                         (gauge_x - 6, ty), (gauge_x - 2, ty), 2)
-        tlbl = FONT_TINY.render(f"{tick_pct}", True, (160, 160, 180))
-        surf.blit(tlbl, (gauge_x - 26, ty - 6))
-
-    # Target marker (dashed red line + label) when a chemical is active
+    # --- Active Effects panel (below and right of ATP synthase / CV) ---
+    # Positioned right next to where ATP is produced, so a student's eye
+    # is drawn to the ATP output area while they read which chemical is
+    # causing the reduction or halt. Each active chemical shows a plain-
+    # language block-type label derived from its `effect` field.
     if sim.active_chemicals:
-        target_pct = int(round(sim.atp_penalty_target * 100))
-        ty = gauge_y + 24 + int(inner_h * (1 - target_pct / 100))
-        for dx in range(0, gauge_w, 6):
-            pygame.draw.line(surf, (255, 90, 90),
-                             (gauge_x + dx, ty),
-                             (gauge_x + dx + 3, ty), 2)
-        tgt_lbl = FONT_TINY.render(
-            f"\u2190 target {target_pct}%", True, (255, 120, 120))
-        surf.blit(tgt_lbl, (gauge_x + gauge_w + 6, ty - 6))
+        panel_x = CX["CV"] + 22
+        panel_y = MATRIX_TOP + 80
+        panel_w = 180
 
-    # Active effects list (below the gauge)
-    if sim.active_chemicals:
-        acy = gauge_y + gauge_h + 30
+        entry_h = 46
+        total_h = 26 + entry_h * len(sim.active_chemicals)
+        bg = pygame.Surface((panel_w, total_h), pygame.SRCALPHA)
+        bg.fill((10, 12, 24, 190))
+        surf.blit(bg, (panel_x, panel_y))
+        pygame.draw.rect(surf, (120, 140, 190),
+                         (panel_x, panel_y, panel_w, total_h),
+                         1, border_radius=4)
+
         surf.blit(
             FONT_TITLE.render("Active Effects:", True, (255, 150, 150)),
-            (WIDTH - 220, acy))
-        acy += 20
+            (panel_x + 8, panel_y + 4))
+        acy = panel_y + 28
         for chem in sim.active_chemicals:
-            surf.blit(
-                FONT_SM.render(f"\u2022 {chem['name']}", True, (255, 180, 180)),
-                (WIDTH - 215, acy))
-            acy += 17
+            effect = chem.get("effect", "")
+            label = EFFECT_LABEL.get(effect, "Effect")
+            name_txt = FONT_TITLE.render(
+                f"\u2022 {chem['name']}", True, (255, 200, 200))
+            surf.blit(name_txt, (panel_x + 8, acy))
+            acy += 20
+            lbl_txt = FONT_SM.render(label, True, (255, 230, 170))
+            surf.blit(lbl_txt, (panel_x + 16, acy))
+            acy += 24
 
     # Title - centered at top of simulation area
     title_txt = FONT_XL.render("Mitochondrial Electron Transport Chain Simulation", True, (200, 200, 200))
@@ -2912,8 +3038,12 @@ def get_complex_at(mx, my):
         "CIII": pygame.Rect(CX["CIII"] - 40, MEMBRANE_Y - 70, 80, 140),
         "CIV":  pygame.Rect(CX["CIV"] - 35, MEMBRANE_Y - 60, 70, 120),
         "CV":   pygame.Rect(CX["CV"] - 40, MEMBRANE_Y - 50, 80, 130),
-        "CoQ":  pygame.Rect(COQ_STATION_X - 30, COQ_STATION_Y - 16, 60, 32),
-        "CytC": pygame.Rect(CYTC_STATION_X - 32, CYTC_STATION_Y - 16, 64, 32),
+        "CoQ":  pygame.Rect(COQ_BAND_LEFT, COQ_BAND_TOP - 4,
+                            COQ_BAND_RIGHT - COQ_BAND_LEFT,
+                            COQ_BAND_BOTTOM - COQ_BAND_TOP + 8),
+        "CytC": pygame.Rect(CYTC_BAND_LEFT, CYTC_BAND_TOP - 4,
+                            CYTC_BAND_RIGHT - CYTC_BAND_LEFT,
+                            CYTC_BAND_BOTTOM - CYTC_BAND_TOP + 8),
     }
     for key, rect in hit_rects.items():
         if rect.collidepoint(mx, my):
