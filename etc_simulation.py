@@ -1617,11 +1617,13 @@ class SimState:
         "cccp": "CCCP",
         "malonate": "MAL",
         "ttfa": "TTFA",
+        "three_nitropropionic_acid": "3-NPA",
+        "stigmatellin": "STIG",
+        "atovaquone": "ATV",
         "atractyloside": "ATR",
         "metformin": "MET",
+        "phenformin": "PHEN",
         "mptp": "MPP\u207a",
-        "doxorubicin": "DOX",
-        "thermogenin": "UCP1",
     }
 
     def _trigger_narrative(self, chem):
@@ -1906,7 +1908,7 @@ def sim_update():
                     target_obj=target_coq))
 
     # --- Step 2: FADH2 donates electrons to Complex II, also to a nearby CoQ ---
-    spawn_fadh2 = max(1, int(80 / flux))
+    spawn_fadh2 = max(1, int(65 / flux))
     cii_can_work = cii_rate > 0 and not sim.blocked["CII"] and not sim.ci_backed_up
     if cii_can_work and f % spawn_fadh2 == 0 and random.random() < backpressure:
         target_coq = _find_free_coq(CX["CII"])

@@ -40,17 +40,57 @@
       "common_source": "Pharmaceutical sedative/anesthetic; historically prescribed for insomnia, anxiety, and seizures (Amytal, Nembutal, Phenobarbital)."
     },
     {
+      "id": "mptp",
+      "name": "MPP\u207a (from MPTP)",
+      "category": "Complex I Inhibitor",
+      "target": "CI",
+      "effect": "block",
+      "description": "MPTP is converted to MPP\u207a by MAO-B in the brain. MPP\u207a is selectively taken up by dopaminergic neurons and inhibits Complex I, causing energy depletion and oxidative stress.",
+      "overview": "A synthetic contaminant discovered in tainted street drugs. Converted to MPP\u207a in the brain, where it selectively kills dopamine neurons by poisoning their Complex I \u2014 causing rapid-onset Parkinson's disease.",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/MPTP",
+      "atp_reduction_pct": 65,
+      "common_source": "Synthetic contaminant discovered in tainted 'synthetic heroin' (MPPP) in the 1980s; now used only in research to model Parkinson's disease in animals.",
+      "carcinogenicity": "Not classified by IARC. MPTP/MPP+ toxicity is acute dopaminergic neurotoxicity causing Parkinson's-like syndrome, not carcinogenicity."
+    },
+    {
+      "id": "metformin",
+      "name": "Metformin",
+      "category": "Complex I Inhibitor (Mild)",
+      "target": "CI",
+      "effect": "partial_block",
+      "description": "First-line diabetes drug that mildly inhibits Complex I. Reduces ATP production, activating AMPK which increases glucose uptake and reduces hepatic glucose output. Effect is much weaker than rotenone.",
+      "overview": "The world's most prescribed diabetes medication. Gently slows Complex I just enough to trigger the cell's energy sensor (AMPK), which boosts glucose uptake \u2014 a therapeutic side effect of mild ETC inhibition.",
+      "carcinogenicity": "Not carcinogenic. Epidemiological studies consistently show metformin is associated with REDUCED cancer risk. Actively studied as a potential anti-cancer agent due to AMPK activation and metabolic effects on tumors.",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Metformin",
+      "atp_reduction_pct": 15,
+      "common_source": "Pharmaceutical first-line diabetes drug; originally derived from guanidine compounds found in Galega officinalis (French lilac / goat's rue)."
+    },
+    {
+      "id": "phenformin",
+      "name": "Phenformin",
+      "category": "Complex I Inhibitor (Moderate)",
+      "target": "CI",
+      "effect": "partial_block",
+      "description": "A biguanide drug that inhibits Complex I more potently than metformin. Withdrawn from most markets in the 1970s due to unacceptably high rates of fatal lactic acidosis caused by excessive suppression of oxidative phosphorylation.",
+      "overview": "Metformin's dangerous older sibling. Both inhibit Complex I, but phenformin hits it much harder \u2014 so hard that lactate builds up fatally. Withdrawn worldwide after causing hundreds of deaths, replaced by the gentler metformin.",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Phenformin",
+      "atp_reduction_pct": 35,
+      "common_source": "Synthetic biguanide drug; introduced in the 1950s for diabetes, withdrawn from the US (1978) and most countries due to fatal lactic acidosis. Still available in a few countries.",
+      "carcinogenicity": "Not classified as carcinogenic. Like metformin, some evidence suggests anti-cancer properties via AMPK activation, but clinical use was terminated before long-term cancer data could be collected."
+    },
+
+    {
       "id": "malonate",
       "name": "Malonate",
       "category": "Complex II Inhibitor",
       "target": "CII",
       "effect": "block",
-      "description": "A competitive inhibitor of succinate dehydrogenase (Complex II). Structurally similar to succinate, it binds the active site and blocks FADH2-linked electron entry into the ETC via ubiquinone.",
-      "overview": "A molecule that looks like succinate but can't be processed. It occupies Complex II's active site and blocks the FADH2 pathway into the chain. Classic example of competitive inhibition.",
+      "description": "A competitive inhibitor of succinate dehydrogenase (Complex II). Structurally similar to succinate, it occupies the active site and prevents succinate from being oxidized. Reversible \u2014 can be outcompeted by excess succinate.",
+      "overview": "A simple organic acid that mimics succinate closely enough to jam Complex II's active site. Used in labs to study the FADH2 branch of the ETC. Unlike TTFA (which blocks the CoQ exit), malonate blocks the succinate entry point.",
       "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Malonate",
       "atp_reduction_pct": 20,
-      "common_source": "Synthetic research reagent; the classic competitive inhibitor used in biochemistry labs to demonstrate enzyme kinetics on succinate dehydrogenase.",
-      "carcinogenicity": "Not classified. Not considered carcinogenic at biologically relevant exposures."
+      "common_source": "Naturally occurring dicarboxylic acid found in many fruits (especially grapes and apples); used as a standard competitive inhibitor in biochemistry research.",
+      "carcinogenicity": "Not classified. A natural metabolite with no documented carcinogenicity."
     },
     {
       "id": "ttfa",
@@ -65,6 +105,20 @@
       "common_source": "Synthetic research chemical, originally developed as a metal chelator, now used in the lab to probe the ubiquinone binding site of Complex II.",
       "carcinogenicity": "Not classified. Research-only chemical with no documented carcinogenicity data."
     },
+    {
+      "id": "three_nitropropionic_acid",
+      "name": "3-Nitropropionic Acid (3-NPA)",
+      "category": "Complex II Inhibitor",
+      "target": "CII",
+      "effect": "block",
+      "description": "An irreversible inhibitor of succinate dehydrogenase (Complex II). Covalently modifies the enzyme's active site, permanently inactivating it. Causes selective striatal neurodegeneration resembling Huntington's disease.",
+      "overview": "A mold toxin that permanently destroys Complex II. Found in moldy sugarcane that has caused mass poisonings in China. Selectively damages the striatum in the brain \u2014 used in research to model Huntington's disease.",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/3-Nitropropionic-acid",
+      "atp_reduction_pct": 30,
+      "common_source": "Produced by the fungus Arthrinium saccharicola on stored sugarcane; responsible for outbreaks of acute encephalopathy in China. Also found in some legumes (Astragalus species).",
+      "carcinogenicity": "Not classified by IARC. Primarily an acute neurotoxin; no established carcinogenicity."
+    },
+
     {
       "id": "antimycin_a",
       "name": "Antimycin A",
@@ -92,14 +146,41 @@
       "carcinogenicity": "Not classified. Research chemical with no documented human carcinogenicity data."
     },
     {
+      "id": "stigmatellin",
+      "name": "Stigmatellin",
+      "category": "Complex III Inhibitor",
+      "target": "CIII",
+      "effect": "block",
+      "description": "Binds the Qo site (the quinol-oxidation pocket on the IMS side of Complex III), preventing ubiquinol from donating electrons. Unlike Antimycin A (Qi site), Qo-site inhibitors generate less ROS because they prevent semiquinone formation rather than trapping it.",
+      "overview": "A research antibiotic that blocks Complex III at a different site than Antimycin A. By blocking electron entry (Qo) rather than exit (Qi), it produces far fewer toxic free radicals \u2014 an important distinction for understanding ROS biology.",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Stigmatellin",
+      "atp_reduction_pct": 80,
+      "common_source": "Produced by the myxobacterium Stigmatella aurantiaca; used as a research tool to distinguish Qo vs Qi site mechanisms in Complex III.",
+      "carcinogenicity": "Not classified. Research-only compound with no documented carcinogenicity."
+    },
+    {
+      "id": "atovaquone",
+      "name": "Atovaquone",
+      "category": "Complex III Inhibitor",
+      "target": "CIII",
+      "effect": "block",
+      "description": "A hydroxynaphthoquinone that inhibits the cytochrome bc1 complex (Complex III) at the Qo site. Highly selective for parasite mitochondria over human mitochondria, making it useful as an antimalarial and anti-Pneumocystis drug.",
+      "overview": "An FDA-approved drug used to treat malaria and Pneumocystis pneumonia. It exploits a key difference: parasite Complex III is much more sensitive to Qo-site inhibition than human Complex III, so therapeutic doses kill parasites while sparing host cells.",
+      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Atovaquone",
+      "atp_reduction_pct": 80,
+      "common_source": "Synthetic pharmaceutical (brand: Mepron, Malarone). FDA-approved for treatment and prevention of malaria (with proguanil) and Pneumocystis jirovecii pneumonia in immunocompromised patients.",
+      "carcinogenicity": "Not classified as carcinogenic. FDA-approved drug with extensive safety data; no carcinogenicity signals in clinical use."
+    },
+
+    {
       "id": "cyanide",
-      "name": "Cyanide (CN⁻)",
+      "name": "Cyanide (CN\u207b)",
       "category": "Complex IV Inhibitor",
       "target": "CIV",
       "effect": "block",
-      "description": "Binds to the Fe³⁺ in cytochrome a3 of Complex IV (cytochrome c oxidase), preventing the final transfer of electrons to oxygen. Completely halts the entire ETC.",
+      "description": "Binds to the Fe\u00b3\u207a in cytochrome a3 of Complex IV (cytochrome c oxidase), preventing the final transfer of electrons to oxygen. Completely halts the entire ETC.",
       "overview": "One of the most rapidly lethal poisons. Locks onto the iron in Complex IV so electrons cannot reach oxygen. The entire chain backs up and ATP production stops within seconds.",
-      "carcinogenicity": "Not classified as carcinogenic by IARC, NTP, or EPA. Cyanide is an acute systemic toxin, not a carcinogen — it kills cells by energy deprivation, not DNA damage.",
+      "carcinogenicity": "Not classified as carcinogenic by IARC, NTP, or EPA. Cyanide is an acute systemic toxin, not a carcinogen \u2014 it kills cells by energy deprivation, not DNA damage.",
       "reference_url": "https://www.atsdr.cdc.gov/toxprofiles/tp8.pdf",
       "atp_reduction_pct": 95,
       "common_source": "Present in almond, cherry, apricot, and apple seeds; cassava; industrial metal-extraction and electroplating; historically used as a chemical weapon."
@@ -110,7 +191,7 @@
       "category": "Complex IV Inhibitor",
       "target": "CIV",
       "effect": "block",
-      "description": "Binds to the reduced iron (Fe²⁺) of cytochrome a3 in Complex IV, competing with oxygen. Prevents electron transfer to O2 and blocks the entire chain.",
+      "description": "Binds to the reduced iron (Fe\u00b2\u207a) of cytochrome a3 in Complex IV, competing with oxygen. Prevents electron transfer to O2 and blocks the entire chain.",
       "overview": "A colorless, odorless gas from incomplete combustion. Poisons cells in two ways: binds hemoglobin (blocking oxygen delivery) AND directly blocks Complex IV (blocking oxygen use).",
       "carcinogenicity": "Not classified as carcinogenic by IARC. CO is an acute asphyxiant, not a carcinogen. However, combustion sources that produce CO often co-emit carcinogens (e.g., benzene, PAHs).",
       "reference_url": "https://www.atsdr.cdc.gov/toxprofiles/tp201.pdf",
@@ -119,30 +200,31 @@
     },
     {
       "id": "hydrogen_sulfide",
-      "name": "Hydrogen Sulfide (H₂S)",
+      "name": "Hydrogen Sulfide (H\u2082S)",
       "category": "Complex IV Inhibitor",
       "target": "CIV",
       "effect": "block",
       "description": "Inhibits cytochrome c oxidase (Complex IV) by binding to the copper center (CuB). At low concentrations may act as a signaling molecule; at high concentrations it is toxic.",
       "overview": "The 'rotten egg' gas. At low levels it is a natural signaling molecule in the body. At high levels it poisons Complex IV similarly to cyanide, shutting down aerobic respiration.",
-      "carcinogenicity": "Not classified as carcinogenic by IARC or NTP. Primarily an acute toxic gas. Some research suggests low-level H₂S may actually have anti-cancer properties through mitochondrial signaling.",
+      "carcinogenicity": "Not classified as carcinogenic by IARC or NTP. Primarily an acute toxic gas. Some research suggests low-level H\u2082S may actually have anti-cancer properties through mitochondrial signaling.",
       "reference_url": "https://www.atsdr.cdc.gov/toxprofiles/tp114.pdf",
       "atp_reduction_pct": 85,
       "common_source": "Rotting organic matter, sewers, volcanic gases, oil and gas wells, paper mills, and deep natural-gas deposits."
     },
     {
       "id": "azide",
-      "name": "Sodium Azide (NaN₃)",
+      "name": "Sodium Azide (NaN\u2083)",
       "category": "Complex IV Inhibitor",
       "target": "CIV",
       "effect": "block",
       "description": "Azide ions bind to cytochrome a3 in Complex IV, similar to cyanide. Blocks electron flow to oxygen and halts oxidative phosphorylation.",
-      "overview": "A chemical preservative and airbag propellant. Highly toxic if ingested — acts like cyanide by blocking Complex IV. Prevents cells from using oxygen to make ATP.",
+      "overview": "A chemical preservative and airbag propellant. Highly toxic if ingested \u2014 acts like cyanide by blocking Complex IV. Prevents cells from using oxygen to make ATP.",
       "carcinogenicity": "NTP: Known mutagen (positive in Ames test and other genotoxicity assays). Not formally classified as carcinogenic by IARC, but mutagenic potential warrants caution.",
       "reference_url": "https://www.cdc.gov/niosh/topics/emres/chemagent/sodiumazide.html",
       "atp_reduction_pct": 90,
       "common_source": "Automobile airbag propellant, lab reagent preservative in biochemistry buffers, and some commercial herbicides."
     },
+
     {
       "id": "oligomycin",
       "name": "Oligomycin",
@@ -156,14 +238,15 @@
       "common_source": "Produced by Streptomyces diastatochromogenes; used exclusively as a research tool to block ATP synthase.",
       "carcinogenicity": "Not classified by IARC. Used only in research settings; not a documented human carcinogen."
     },
+
     {
       "id": "dnp",
       "name": "2,4-Dinitrophenol (DNP)",
       "category": "Uncoupler",
       "target": "membrane",
       "effect": "uncouple",
-      "description": "A protonophore that carries H⁺ across the inner mitochondrial membrane, bypassing ATP synthase. Dissipates the proton gradient as heat. Electron transport accelerates but ATP production drops dramatically.",
-      "overview": "A dangerous weight-loss drug banned in the 1930s. Pokes holes in the proton gradient — the energy meant for ATP is wasted as heat instead, raising body temperature dangerously.",
+      "description": "A protonophore that carries H\u207a across the inner mitochondrial membrane, bypassing ATP synthase. Dissipates the proton gradient as heat. Electron transport accelerates but ATP production drops dramatically.",
+      "overview": "A dangerous weight-loss drug banned in the 1930s. Pokes holes in the proton gradient \u2014 the energy meant for ATP is wasted as heat instead, raising body temperature dangerously.",
       "carcinogenicity": "Not classified by IARC. NTP: Limited evidence. DNP is primarily an acute metabolic poison (hyperthermia), but its nitroaromatic structure raises concern for potential mutagenicity.",
       "reference_url": "https://www.atsdr.cdc.gov/toxprofiles/tp64.pdf",
       "atp_reduction_pct": 90,
@@ -175,7 +258,7 @@
       "category": "Uncoupler",
       "target": "membrane",
       "effect": "uncouple",
-      "description": "Carbonyl cyanide-p-trifluoromethoxyphenylhydrazone. A potent protonophore that shuttles H⁺ across the membrane. Used to measure maximal respiratory capacity in experiments.",
+      "description": "Carbonyl cyanide-p-trifluoromethoxyphenylhydrazone. A potent protonophore that shuttles H\u207a across the membrane. Used to measure maximal respiratory capacity in experiments.",
       "overview": "A powerful research uncoupler. Carries protons across the membrane like a shuttle bus, completely bypassing ATP synthase. Used to measure how fast the ETC can run without any brakes.",
       "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/FCCP",
       "atp_reduction_pct": 90,
@@ -189,12 +272,13 @@
       "target": "membrane",
       "effect": "uncouple",
       "description": "Carbonyl cyanide m-chlorophenylhydrazone. Similar to FCCP, it dissipates the proton gradient by shuttling protons across the inner membrane independently of ATP synthase.",
-      "overview": "Another research protonophore, functionally identical to FCCP. Collapses the proton gradient so the ETC runs freely but makes no ATP — all energy is released as heat.",
+      "overview": "Another research protonophore, functionally identical to FCCP. Collapses the proton gradient so the ETC runs freely but makes no ATP \u2014 all energy is released as heat.",
       "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/CCCP",
       "atp_reduction_pct": 75,
       "common_source": "Synthetic research chemical; a standard lab protonophore, functionally interchangeable with FCCP in most experiments.",
       "carcinogenicity": "Not classified. Similar profile to FCCP; research-only reagent with no documented carcinogenicity."
     },
+
     {
       "id": "atractyloside",
       "name": "Atractyloside",
@@ -207,114 +291,17 @@
       "atp_reduction_pct": 80,
       "common_source": "Plant toxin from the Mediterranean thistle Atractylis gummifera and related species; responsible for livestock and human poisonings.",
       "carcinogenicity": "Not classified by IARC. Primarily an acute toxin causing liver and kidney failure, not a long-term cancer risk."
-    },
-    {
-      "id": "metformin",
-      "name": "Metformin",
-      "category": "Complex I Inhibitor (Mild)",
-      "target": "CI",
-      "effect": "partial_block",
-      "description": "First-line diabetes drug that mildly inhibits Complex I. Reduces ATP production, activating AMPK which increases glucose uptake and reduces hepatic glucose output. Effect is much weaker than rotenone.",
-      "overview": "The world's most prescribed diabetes medication. Gently slows Complex I just enough to trigger the cell's energy sensor (AMPK), which boosts glucose uptake — a therapeutic side effect of mild ETC inhibition.",
-      "carcinogenicity": "Not carcinogenic. Epidemiological studies consistently show metformin is associated with REDUCED cancer risk. Actively studied as a potential anti-cancer agent due to AMPK activation and metabolic effects on tumors.",
-      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Metformin",
-      "atp_reduction_pct": 15,
-      "common_source": "Pharmaceutical first-line diabetes drug; originally derived from guanidine compounds found in Galega officinalis (French lilac / goat's rue)."
-    },
-    {
-      "id": "mptp",
-      "name": "MPP⁺ (from MPTP)",
-      "category": "Complex I Inhibitor",
-      "target": "CI",
-      "effect": "block",
-      "description": "MPTP is converted to MPP⁺ by MAO-B in the brain. MPP⁺ is selectively taken up by dopaminergic neurons and inhibits Complex I, causing energy depletion and oxidative stress.",
-      "overview": "A synthetic contaminant discovered in tainted street drugs. Converted to MPP⁺ in the brain, where it selectively kills dopamine neurons by poisoning their Complex I — causing rapid-onset Parkinson's disease.",
-      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/MPTP",
-      "atp_reduction_pct": 65,
-      "common_source": "Synthetic contaminant discovered in tainted 'synthetic heroin' (MPPP) in the 1980s; now used only in research to model Parkinson's disease in animals.",
-      "carcinogenicity": "Not classified by IARC. MPTP/MPP+ toxicity is acute dopaminergic neurotoxicity causing Parkinson's-like syndrome, not carcinogenicity."
     }
   ],
   "categories": [
-    {
-      "id": "Complex I Inhibitor",
-      "color": [
-        76,
-        175,
-        80
-      ]
-    },
-    {
-      "id": "Complex II Inhibitor",
-      "color": [
-        244,
-        67,
-        54
-      ]
-    },
-    {
-      "id": "Complex III Inhibitor",
-      "color": [
-        0,
-        150,
-        136
-      ]
-    },
-    {
-      "id": "Complex IV Inhibitor",
-      "color": [
-        244,
-        67,
-        54
-      ]
-    },
-    {
-      "id": "ATP Synthase Inhibitor",
-      "color": [
-        255,
-        193,
-        7
-      ]
-    },
-    {
-      "id": "Uncoupler",
-      "color": [
-        255,
-        152,
-        0
-      ]
-    },
-    {
-      "id": "Uncoupler (Biological)",
-      "color": [
-        255,
-        152,
-        0
-      ]
-    },
-    {
-      "id": "Transport Inhibitor",
-      "color": [
-        156,
-        39,
-        176
-      ]
-    },
-    {
-      "id": "Complex I Inhibitor (Mild)",
-      "color": [
-        76,
-        175,
-        80
-      ]
-    },
-    {
-      "id": "ROS Generator",
-      "color": [
-        233,
-        30,
-        99
-      ]
-    }
+    {"id": "Complex I Inhibitor", "color": [76, 175, 80]},
+    {"id": "Complex I Inhibitor (Mild)", "color": [76, 175, 80]},
+    {"id": "Complex I Inhibitor (Moderate)", "color": [76, 175, 80]},
+    {"id": "Complex II Inhibitor", "color": [244, 67, 54]},
+    {"id": "Complex III Inhibitor", "color": [0, 150, 136]},
+    {"id": "Complex IV Inhibitor", "color": [244, 67, 54]},
+    {"id": "ATP Synthase Inhibitor", "color": [255, 193, 7]},
+    {"id": "Uncoupler", "color": [255, 152, 0]},
+    {"id": "Transport Inhibitor", "color": [156, 39, 176]}
   ]
 }
