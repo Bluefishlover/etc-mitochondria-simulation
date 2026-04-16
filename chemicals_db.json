@@ -166,7 +166,7 @@
       "overview": "A dangerous weight-loss drug banned in the 1930s. Pokes holes in the proton gradient — the energy meant for ATP is wasted as heat instead, raising body temperature dangerously.",
       "carcinogenicity": "Not classified by IARC. NTP: Limited evidence. DNP is primarily an acute metabolic poison (hyperthermia), but its nitroaromatic structure raises concern for potential mutagenicity.",
       "reference_url": "https://www.atsdr.cdc.gov/toxprofiles/tp64.pdf",
-      "atp_reduction_pct": 70,
+      "atp_reduction_pct": 90,
       "common_source": "Synthetic chemical historically sold as a weight-loss drug in the 1930s (now banned); still appears illegally in supplements. Also used in explosives and dye manufacturing."
     },
     {
@@ -178,7 +178,7 @@
       "description": "Carbonyl cyanide-p-trifluoromethoxyphenylhydrazone. A potent protonophore that shuttles H⁺ across the membrane. Used to measure maximal respiratory capacity in experiments.",
       "overview": "A powerful research uncoupler. Carries protons across the membrane like a shuttle bus, completely bypassing ATP synthase. Used to measure how fast the ETC can run without any brakes.",
       "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/FCCP",
-      "atp_reduction_pct": 75,
+      "atp_reduction_pct": 90,
       "common_source": "Synthetic research chemical; the standard reagent for measuring maximal mitochondrial respiratory capacity in cell biology experiments.",
       "carcinogenicity": "Not classified. Research chemical used in controlled lab settings; no carcinogenicity data."
     },
@@ -194,19 +194,6 @@
       "atp_reduction_pct": 75,
       "common_source": "Synthetic research chemical; a standard lab protonophore, functionally interchangeable with FCCP in most experiments.",
       "carcinogenicity": "Not classified. Similar profile to FCCP; research-only reagent with no documented carcinogenicity."
-    },
-    {
-      "id": "thermogenin",
-      "name": "Thermogenin (UCP1)",
-      "category": "Uncoupler (Biological)",
-      "target": "membrane",
-      "effect": "uncouple",
-      "description": "Uncoupling Protein 1, naturally expressed in brown adipose tissue. Creates a regulated proton leak across the inner membrane, generating heat instead of ATP. This is non-shivering thermogenesis.",
-      "overview": "The body's natural heater. Found in brown fat, it deliberately wastes the proton gradient as heat to keep newborns and hibernating animals warm without shivering.",
-      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/gene/UCP1/human",
-      "atp_reduction_pct": 40,
-      "common_source": "Endogenous protein expressed in brown adipose tissue (BAT) of mammals; critical for thermoregulation in newborns, small mammals, and hibernating animals.",
-      "carcinogenicity": "Not applicable — thermogenin (UCP1) is an endogenous human protein, not an external chemical. Its expression is a normal physiological function."
     },
     {
       "id": "atractyloside",
@@ -246,19 +233,6 @@
       "atp_reduction_pct": 65,
       "common_source": "Synthetic contaminant discovered in tainted 'synthetic heroin' (MPPP) in the 1980s; now used only in research to model Parkinson's disease in animals.",
       "carcinogenicity": "Not classified by IARC. MPTP/MPP+ toxicity is acute dopaminergic neurotoxicity causing Parkinson's-like syndrome, not carcinogenicity."
-    },
-    {
-      "id": "doxorubicin",
-      "name": "Doxorubicin (Adriamycin)",
-      "category": "ROS Generator",
-      "target": "CI",
-      "effect": "ros_generation",
-      "description": "An anthracycline chemotherapy drug that can accept electrons from Complex I and transfer them directly to O2, generating superoxide radicals. This redox cycling damages mitochondrial components.",
-      "overview": "A widely used chemotherapy drug. It hijacks electrons from Complex I and dumps them onto oxygen, creating toxic free radicals that kill cancer cells — but also damage the heart's mitochondria-rich cells.",
-      "carcinogenicity": "IARC Group 2A: Probably carcinogenic to humans. Paradoxically, this anti-cancer drug can itself cause secondary cancers (especially leukemia) due to DNA damage from the same free radicals that kill tumor cells.",
-      "reference_url": "https://pubchem.ncbi.nlm.nih.gov/compound/Doxorubicin",
-      "atp_reduction_pct": 30,
-      "common_source": "Produced by Streptomyces peucetius; a widely used FDA-approved chemotherapy drug (brand: Adriamycin) for many solid tumors and leukemias."
     }
   ],
   "categories": [

@@ -571,9 +571,11 @@ class LeakProton:
         if direction == "down":
             self.y = MEMBRANE_Y - MEMBRANE_H // 2 - 4
             self.target_y = MATRIX_TOP + 20
-        else:  # "up"
+        else:  # "up" — travel fully into the IMS so students see the
+               # proton join the IMS pool instead of vanishing at the
+               # membrane edge.
             self.y = MATRIX_TOP + 20
-            self.target_y = MEMBRANE_Y - MEMBRANE_H // 2 - 4
+            self.target_y = 30 + random.random() * (IMS_BOTTOM - 60)
         self.speed = 1.6 + random.random() * 0.6
         self.done = False
 
@@ -1284,8 +1286,25 @@ class ATPParticle:
         elif self.phase == "release":
             self.x += self.release_vx
             self.y += self.release_vy
-            self.alpha -= 1.2
             self.age += 1
+            # When transport is blocked (Atractyloside), ATP is trapped
+            # in the matrix — stop fading so particles visibly accumulate.
+            # Drift toward a random matrix position so they spread out
+            # instead of clustering near CV.
+            if sim.transport_blocked:
+                if not hasattr(self, '_trap_target'):
+                    self._trap_target = (
+                        random.randint(SIM_X + 60, WIDTH - 60),
+                        random.randint(MATRIX_TOP + 40, HEIGHT - 50))
+                # Drift toward the scattered target position
+                dx = self._trap_target[0] - self.x
+                dy = self._trap_target[1] - self.y
+                self.release_vx = dx * 0.03
+                self.release_vy = dy * 0.03
+                # Keep alpha high — trapped ATP doesn't disappear
+                self.alpha = max(self.alpha, 180)
+            else:
+                self.alpha -= 1.2
             if self.alpha <= 0:
                 self.alpha = 0
 
@@ -1794,6 +1813,25 @@ def sim_update():
     ciii_ok = not sim.blocked["CIII"]
     civ_ok = not sim.blocked["CIV"]
 
+    # --- Proton-motive force backpressure ---
+    # As the IMS-matrix H+ differential grows, the electrochemical
+    # gradient opposes further pumping. When CV is blocked (Oligomycin)
+    # the gradient builds to maximum and the ETC stalls — pumps cannot
+    # push protons against a saturated gradient. Scale ETC activity by a
+    # backpressure factor that drops toward 0 as the differential nears
+    # the IMS cap.
+    ims_n_bp = len(sim.ims_protons)
+    mat_n_bp = len(sim.matrix_protons)
+    bp_differential = max(0, ims_n_bp - mat_n_bp)
+    # Ramp from 1.0 (no backpressure) to 0.0 (stall) as differential
+    # approaches IMS_PROTON_CAP. Onset at ~60% of cap so slowing is
+    # gradual and visible.
+    bp_onset = IMS_PROTON_CAP * 0.6
+    if bp_differential > bp_onset:
+        backpressure = 1.0 - min(1.0, (bp_differential - bp_onset) / (IMS_PROTON_CAP - bp_onset))
+    else:
+        backpressure = 1.0
+
     # --- Update CoQ and cyt c pool diffusion ---
     for m in sim.coq_pool:
         m.update(flux)
@@ -1849,7 +1887,7 @@ def sim_update():
     # nearby diffusing CoQ molecule in the membrane. ---
     spawn_nadh = max(1, int(55 / flux))
     ci_can_work = ci_rate > 0 and not sim.blocked["CI"] and not sim.ci_backed_up
-    if ci_can_work and f % spawn_nadh == 0:
+    if ci_can_work and f % spawn_nadh == 0 and random.random() < backpressure:
         if ci_rate < 1.0 and random.random() > ci_rate:
             pass
         else:
@@ -1870,7 +1908,7 @@ def sim_update():
     # --- Step 2: FADH2 donates electrons to Complex II, also to a nearby CoQ ---
     spawn_fadh2 = max(1, int(80 / flux))
     cii_can_work = cii_rate > 0 and not sim.blocked["CII"] and not sim.ci_backed_up
-    if cii_can_work and f % spawn_fadh2 == 0:
+    if cii_can_work and f % spawn_fadh2 == 0 and random.random() < backpressure:
         target_coq = _find_free_coq(CX["CII"])
         if target_coq is not None:
             target_coq.reserved = True
@@ -1930,6 +1968,8 @@ def sim_update():
                 # (Q cycle), then hands the 2 e- off to 2 separate cyt c
                 # molecules, one per Q-cycle turn. If there aren't two free
                 # cyt c, hand off to whatever IS free; the rest stalls CIII.
+                if sim.blocked["CIII"]:
+                    continue
                 sim.complex_active["CIII"] = 20
                 _pump_protons("CIII", 4)
                 first = _find_free_cytc(CX["CIII"] + 30)
@@ -2009,12 +2049,17 @@ def sim_update():
     # proportionally. Below a residual threshold of ~3 protons of
     # IMS−matrix differential, the force is insufficient to drive ATP
     # synthesis and CV stops entirely.
-    cv_ok = not sim.blocked["CV"] and not sim.transport_blocked
+    cv_ok = not sim.blocked["CV"]
     ims_n = len(sim.ims_protons)
     mat_n = len(sim.matrix_protons)
     differential = max(0, ims_n - mat_n)
     pool_gradient = max(0.0, min(1.0, (differential - 3) / 30))
     effective_gradient = pool_gradient
+    # Transport block (Atractyloside): ADP can't enter matrix, so CV runs
+    # out of substrate. ATP synthase slows to ~20% — still producing some
+    # ATP but far less, and it accumulates inside since it can't be exported.
+    if sim.transport_blocked:
+        effective_gradient *= 0.2
     sim.cv_gradient_strength = effective_gradient  # exposed for decorative fade
 
     cv_interval = max(1, int(10 / (flux * max(0.01, effective_gradient))))
@@ -2074,18 +2119,21 @@ def sim_update():
     # second applied uncoupler accelerates the drop further.
     if sim.uncoupled:
         # Protonophores (DNP/FCCP/CCCP) shuttle H+ BOTH ways through the
-        # membrane. At every leak tick, a proton is chosen from either
-        # pool weighted by pool size — so when IMS>matrix there is more
-        # downward traffic than upward (net IMS→matrix), at equilibrium
+        # membrane. Multiple protons leak per tick so the drain visibly
+        # outpaces ETC pumping and the gradient collapses. At equilibrium
         # both directions are equal (zero net flux, still visibly
         # shuttling). Mirrors real protonophore thermodynamics.
         strength = max(0.1, sim.uncoupler_strength)
         leak_interval = max(1, int(2 / (flux * strength)))
+        # Move 3-4 protons per tick to overwhelm ETC pumping (~10 H+/cycle)
+        leaks_per_tick = max(3, int(4 * strength))
         if f % leak_interval == 0:
-            ims_n = len(sim.ims_protons)
-            mat_n = len(sim.matrix_protons)
-            total = ims_n + mat_n
-            if total > 0:
+            for _ in range(leaks_per_tick):
+                ims_n = len(sim.ims_protons)
+                mat_n = len(sim.matrix_protons)
+                total = ims_n + mat_n
+                if total == 0:
+                    break
                 p_down = ims_n / total
                 if random.random() < p_down and ims_n > 0:
                     idx = random.randint(0, ims_n - 1)
@@ -2104,11 +2152,11 @@ def sim_update():
                     sim.matrix_protons.append(MatrixProton(
                         random.randint(SIM_X + 40, WIDTH - 40),
                         random.randint(MATRIX_TOP + 20, HEIGHT - 30)))
-            else:  # upward — rejoins the IMS pool
+            else:  # upward — rejoins the IMS pool at the leak proton's
+                   # final position so students see continuity.
                 if len(sim.ims_protons) < IMS_PROTON_CAP:
                     sim.ims_protons.append(IMSProton(
-                        random.randint(SIM_X + 40, WIDTH - 40),
-                        random.randint(25, IMS_BOTTOM - 20)))
+                        int(p.x), int(p.target_y)))
     sim.leak_protons = [p for p in sim.leak_protons if not p.done]
 
     # --- ROS ---
@@ -2150,11 +2198,16 @@ def sim_update():
     for a in sim.atp_particles:
         a.update()
     sim.atp_particles = [a for a in sim.atp_particles if a.alpha > 0]
+    # Cap trapped ATP particles under transport block to avoid overflow
+    if sim.transport_blocked and len(sim.atp_particles) > 30:
+        sim.atp_particles = sim.atp_particles[-30:]
 
     # --- CV rotation ---
     rotation_speed = 0.05 * flux * effective_gradient
-    if sim.blocked["CV"] or sim.transport_blocked:
+    if sim.blocked["CV"]:
         rotation_speed = 0
+    elif sim.transport_blocked:
+        rotation_speed *= 0.2
     sim.cv_rotation += rotation_speed
 
     # --- Metabolic H+ generation in matrix ---
@@ -2163,9 +2216,17 @@ def sim_update():
     # to sustain pumping but slow enough that pumping + CIV water formation
     # actually deplete the pool. This keeps matrix visually sparse relative
     # to the IMS while the ETC is running.
-    metabolic_interval = max(1, int(8 / flux))
+    # When CV is blocked (Oligomycin), ETC stalls and NADH/FADH2
+    # accumulate — TCA cycle slows dramatically. Reduce metabolic H+
+    # generation by 80% (slower rate, lower cap).
+    if sim.blocked["CV"]:
+        metabolic_interval = max(1, int(40 / flux))
+        metabolic_cap = max(1, int(MATRIX_PROTON_BASELINE * 0.2))
+    else:
+        metabolic_interval = max(1, int(8 / flux))
+        metabolic_cap = MATRIX_PROTON_BASELINE
     if (f % metabolic_interval == 0
-            and len(sim.matrix_protons) < MATRIX_PROTON_BASELINE):
+            and len(sim.matrix_protons) < metabolic_cap):
         sim.matrix_protons.append(MatrixProton(
             random.randint(SIM_X + 40, WIDTH - 100),
             random.randint(MATRIX_TOP + 30, HEIGHT - 30)))
@@ -2177,8 +2238,11 @@ def sim_update():
     # stops it quietly equilibrates the two pools so the gradient collapses
     # toward equal densities instead of freezing in place. Leak rate ramps
     # up as the IMS:matrix ratio grows, so equilibrium is stable.
+    # When CV is blocked (Oligomycin), suppress the passive leak so the
+    # IMS gradient visibly builds to maximum — the trapped H+ have
+    # nowhere to go, which is the whole point of the Oligomycin effect.
     leak_interval = max(1, int(14 / flux))
-    if f % leak_interval == 0 and len(sim.ims_protons) > 0:
+    if not sim.blocked["CV"] and f % leak_interval == 0 and len(sim.ims_protons) > 0:
         ims_n = len(sim.ims_protons)
         mat_n = len(sim.matrix_protons)
         # Only leak while IMS is denser than matrix (never invert gradient).
@@ -2226,11 +2290,12 @@ def _pump_protons(complex_key, count):
             start_x = consumed.x
             start_y = consumed.y
 
-        # Fallback if no matrix proton was available (shouldn't happen at
-        # steady state but keeps the pump running visually)
+        # If no matrix proton was available, skip — pumps cannot move
+        # protons that don't exist. This lets the matrix drain under
+        # backpressure (e.g. Oligomycin blocks CV, ETC keeps pumping
+        # until matrix H+ are depleted, then stalls).
         if start_x is None:
-            start_x = cx + random.uniform(-10, 10)
-            start_y = MATRIX_TOP + random.uniform(20, 60)
+            continue
 
         # Randomize target_x across the complex width so rising protons
         # fan out instead of lining up in a single column.
@@ -2288,7 +2353,7 @@ def draw_all(mx, my):
                     active=sim.complex_active["CIV"] > 0)
     draw_complex_V(screen, CX["CV"], MEMBRANE_Y,
                    rotation=sim.cv_rotation,
-                   blocked=sim.blocked["CV"] or sim.transport_blocked,
+                   blocked=sim.blocked["CV"],
                    highlight=(hovered == "CV"))
 
     # CoQ pool: faint band outline + caption + diffusing molecules
@@ -2352,7 +2417,7 @@ def draw_all(mx, my):
     # gradient strength so when CV stops (pool drained to threshold) the
     # cluster visibly empties out too. A broad cloud fills the IMS column
     # plus a tighter cluster at the channel entry.
-    if not sim.blocked["CV"] and not sim.transport_blocked:
+    if not sim.blocked["CV"]:
         cluster_alpha = int(255 * sim.cv_gradient_strength)
         if cluster_alpha > 0:
             cx_cv = CX["CV"]
