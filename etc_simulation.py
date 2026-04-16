@@ -1494,6 +1494,63 @@ class SimState:
         self.atp_history = []
 
         self.cv_rotation = 0.0
+
+        # --- Seed a "mature" ETC state so the simulation looks active
+        # from the very first frame. Without this, the chain takes several
+        # seconds to ramp up and appears dormant on play/reset. ---
+
+        # Pre-load a few CoQ molecules so CIII has electrons to process
+        for m in self.coq_pool[:3]:
+            m.loaded = True
+
+        # Pre-load a couple cyt c so CIV has work immediately
+        for m in self.cytc_pool[:2]:
+            m.loaded = True
+
+        # Light up all complexes so they appear active on first frame
+        self.complex_active = {"CI": 15, "CII": 10, "CIII": 15, "CIV": 15, "CV": 10}
+
+        # Seed a few ATP particles mid-release so ATP is visible immediately
+        for _ in range(3):
+            atp = ATPParticle(CX["CV"], MATRIX_TOP)
+            atp.phase = "release"
+            atp.x = CX["CV"] - random.uniform(40, 160)
+            atp.y = MATRIX_TOP + random.uniform(60, 180)
+            atp.alpha = random.uniform(120, 200)
+            atp.age = random.randint(10, 40)
+            self.atp_particles.append(atp)
+
+        # Seed a couple of water particles near CIV
+        for _ in range(2):
+            self.water_particles.append(WaterParticle(
+                CX["CIV"] + random.uniform(-30, 30),
+                MATRIX_TOP + random.uniform(20, 60)))
+
+        # Seed a few influx protons descending through CV
+        for _ in range(2):
+            ip = InfluxProton(CX["CV"],
+                              start_x=CX["CV"] + random.uniform(-15, 15),
+                              start_y=IMS_BOTTOM - random.uniform(20, 40))
+            self.influx_protons.append(ip)
+
+        # Seed some pumping protons mid-transit
+        for cx_key in ("CI", "CIII", "CIV"):
+            cx = CX[cx_key]
+            frac = random.uniform(0.3, 0.7)
+            start_y = MATRIX_TOP + 40
+            target_y = 30 + random.random() * (IMS_BOTTOM - 60)
+            y = start_y + (target_y - start_y) * frac
+            p = PumpingProton(cx + random.uniform(-10, 10), start_y,
+                              cx + random.uniform(-14, 14), target_y)
+            p.y = y
+            self.pumping_protons.append(p)
+
+        # Give the CV rotor a head start
+        self.cv_rotation = random.uniform(0, 6.28)
+
+        # Pre-fill ATP history so the rate display isn't zero
+        self.atp_history = [1] * 20
+
         self.frame = 0
         self.flux = 0.75
         self.paused = False
